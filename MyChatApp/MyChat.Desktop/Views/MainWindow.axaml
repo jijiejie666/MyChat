@@ -1,0 +1,40 @@
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+                 xmlns:vm="using:MyChat.Desktop.ViewModels"
+                 xmlns:views="using:MyChat.Desktop.Views"
+                 x:Class="MyChat.Desktop.Views.MainWindow"
+                 x:DataType="vm:MainWindowViewModel"
+                 
+                 Title="MyChat">
+
+	<ContentControl Content="{Binding CurrentContent}">
+		<ContentControl.DataTemplates>
+
+			<DataTemplate DataType="{x:Type vm:LoginViewModel}">
+				<views:LoginView />
+			</DataTemplate>
+			
+			<DataTemplate DataType="{x:Type vm:RegisterViewModel}">
+				<views:RegisterView />
+			</DataTemplate>
+
+			<DataTemplate DataType="{x:Type vm:ChatViewModel}">
+				<views:ChatView />
+			</DataTemplate>
+			
+			<DataTemplate DataType="{x:Type vm:SearchFriendViewModel}">
+				<views:SearchFriendView />
+			</DataTemplate>
+
+			<DataTemplate DataType="{x:Type vm:CreateGroupViewModel}">
+				<views:CreateGroupView />
+			</DataTemplate>
+
+			<DataTemplate DataType="{x:Type vm:ForgetPasswordViewModel}">
+				<views:ForgetPasswordView />
+			</DataTemplate>
+		</ContentControl.DataTemplates>
+	</ContentControl>
+
+</suki:SukiWindow>

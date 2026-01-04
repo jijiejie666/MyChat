@@ -1,0 +1,55 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:vm="using:MyChat.Desktop.ViewModels"
+             x:Class="MyChat.Desktop.Views.SearchFriendView"
+             x:DataType="vm:SearchFriendViewModel">
+
+	<Grid>
+		<Border Background="#99000000" />
+
+		<suki:GlassCard Width="400" Height="450"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsInteractive="True">
+			<StackPanel Spacing="20" Margin="20">
+				<TextBlock Text="查找好友" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+				<Grid ColumnDefinitions="*, Auto">
+					<TextBox Grid.Column="0" Text="{Binding SearchText}" Watermark="输入对方账号..." Classes="Flat"/>
+					<Button Grid.Column="1" Command="{Binding SearchCommand}" Content="搜索" Margin="10,0,0,0" Classes="Flat Primary"/>
+				</Grid>
+
+				<TextBlock Text="{Binding StatusMessage}" Foreground="Orange" HorizontalAlignment="Center" />
+
+				<suki:GlassCard IsVisible="{Binding HasResult}" Margin="0,10">
+					<Grid ColumnDefinitions="60, *">
+						<Border Grid.Column="0" Width="50" Height="50" CornerRadius="25" Background="#5B60F6">
+							<TextBlock Text="{Binding FoundName[0]}" Foreground="White"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="20"/>
+						</Border>
+
+						<StackPanel Grid.Column="1" Margin="15,0,0,0" VerticalAlignment="Center">
+							<TextBlock Text="{Binding FoundName}" FontSize="18" FontWeight="Bold"/>
+							<TextBlock Text="{Binding FoundAccount, StringFormat='账号: {0}'}" Opacity="0.6"/>
+						</StackPanel>
+					</Grid>
+				</suki:GlassCard>
+
+				<StackPanel Spacing="10" VerticalAlignment="Bottom">
+					<Button Command="{Binding AddFriendCommand}"
+                            Content="加为好友"
+                            Classes="Flat Primary"
+                            HorizontalAlignment="Stretch"
+                            IsVisible="{Binding HasResult}"
+                            IsEnabled="{Binding !IsBusy}"/>
+
+					<Button Command="{Binding BackCommand}"
+                            Content="关闭"
+                            Classes="Basic"
+                            HorizontalAlignment="Center"/>
+				</StackPanel>
+
+			</StackPanel>
+		</suki:GlassCard>
+	</Grid>
+</UserControl>

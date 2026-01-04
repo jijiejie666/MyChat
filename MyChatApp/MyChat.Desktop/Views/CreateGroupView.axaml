@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:vm="using:MyChat.Desktop.ViewModels"
+             x:Class="MyChat.Desktop.Views.CreateGroupView"
+             x:DataType="vm:CreateGroupViewModel">
+	<Grid>
+		<Border Background="#99000000" />
+		<suki:GlassCard Width="400" Height="500" HorizontalAlignment="Center" VerticalAlignment="Center" IsInteractive="True">
+			<StackPanel Spacing="15" Margin="20">
+				<TextBlock Text="发起群聊" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+				<TextBox Text="{Binding GroupName}" Watermark="给群起个名字..." Classes="Flat"/>
+
+				<TextBlock Text="选择成员:" Opacity="0.7"/>
+
+				<Border Height="250" CornerRadius="10" Background="#11000000" Padding="5">
+					<ScrollViewer>
+						<ItemsControl ItemsSource="{Binding FriendList}">
+							<ItemsControl.ItemTemplate>
+								<DataTemplate>
+									<CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked}" Margin="5"/>
+								</DataTemplate>
+							</ItemsControl.ItemTemplate>
+						</ItemsControl>
+					</ScrollViewer>
+				</Border>
+
+				<TextBlock Text="{Binding StatusMessage}" Foreground="Orange" HorizontalAlignment="Center"/>
+				<StackPanel Spacing="10">
+					<Button Command="{Binding CreateCommand}" Content="确 定 创 建" Classes="Flat Primary" HorizontalAlignment="Stretch" IsEnabled="{Binding !IsBusy}"/>
+					<Button Command="{Binding BackCommand}" Content="取消" Classes="Basic" HorizontalAlignment="Center"/>
+				</StackPanel>
+			</StackPanel>
+		</suki:GlassCard>
+	</Grid>
+</UserControl>

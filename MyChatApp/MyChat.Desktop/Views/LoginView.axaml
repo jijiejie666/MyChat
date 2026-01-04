@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:vm="using:MyChat.Desktop.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="MyChat.Desktop.Views.LoginView"
+             x:DataType="vm:LoginViewModel">
+
+	<Grid>
+		<Border>
+			<Border.Background>
+				<LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+					<GradientStop Color="#2d3436" Offset="0.0" />
+					<GradientStop Color="#0984e3" Offset="0.5" />
+					<GradientStop Color="#6c5ce7" Offset="1.0" />
+				</LinearGradientBrush>
+			</Border.Background>
+		</Border>
+
+		<Canvas>
+			<Ellipse Width="300" Height="300" Fill="#fab1a0" Opacity="0.4" Canvas.Left="50" Canvas.Top="50">
+				<Ellipse.Effect>
+					<BlurEffect Radius="100"/>
+				</Ellipse.Effect>
+			</Ellipse>
+			<Ellipse Width="400" Height="400" Fill="#00cec9" Opacity="0.3" Canvas.Right="0" Canvas.Bottom="0">
+				<Ellipse.Effect>
+					<BlurEffect Radius="120"/>
+				</Ellipse.Effect>
+			</Ellipse>
+		</Canvas>
+
+		<suki:GlassCard Width="420"
+                        Height="550"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        IsInteractive="True">
+
+			<StackPanel Spacing="25" Margin="30" VerticalAlignment="Center">
+
+				<StackPanel Spacing="10" HorizontalAlignment="Center">
+					<TextBlock Text="💬" FontSize="48" HorizontalAlignment="Center"/>
+					<TextBlock Text="MyChat"
+						 HorizontalAlignment="Center"
+							FontSize="30"
+							FontWeight="DemiBold"
+							Foreground="{DynamicResource SukiPrimaryColor}"/>
+					<TextBlock Text="欢迎回来，请登录"
+                               FontSize="14"
+                               Opacity="0.6"
+                               HorizontalAlignment="Center"/>
+				</StackPanel>
+
+				<StackPanel Spacing="15">
+					<TextBox Text="{Binding Account}"
+                             Watermark="账号 / 邮箱"
+                             Classes="Flat"
+                             Height="50"
+                             CornerRadius="10"/>
+
+					<TextBox Text="{Binding Password}"
+                             Watermark="密码"
+                             PasswordChar="•"
+                             Classes="Flat"
+                             Height="50"
+                             CornerRadius="10"/>
+				</StackPanel>
+
+				<Button Command="{Binding LoginCommand}"
+                        Content="立 即 登 录"
+                        Classes="Flat Primary"
+                        Height="55"
+                        CornerRadius="27"
+                        FontSize="16"
+                        FontWeight="Bold"
+                        HorizontalAlignment="Stretch"
+                        IsEnabled="{Binding !IsBusy}"/>
+
+				<StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20">
+					<Button Content="注册账号" Command="{Binding GoToRegisterCommand}" Classes="Basic" FontSize="12" Opacity="0.7"/>
+
+					<Button Content="忘记密码?"
+							Command="{Binding GoToForgetPasswordCommand}"
+							Classes="Basic"
+							FontSize="12"
+							Opacity="0.7"/>
+				</StackPanel>
+
+				<TextBlock Text="{Binding StatusMessage}"
+                           Foreground="#ff7675"
+                           FontSize="13"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+			</StackPanel>
+		</suki:GlassCard>
+	</Grid>
+</UserControl>

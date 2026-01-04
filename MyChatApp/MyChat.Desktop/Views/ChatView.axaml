@@ -1,0 +1,321 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:vm="using:MyChat.Desktop.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+             x:Class="MyChat.Desktop.Views.ChatView"
+             x:DataType="vm:ChatViewModel"
+             x:Name="Root">
+	<suki:SukiSideMenu>
+		<suki:SukiSideMenu.HeaderContent>
+			<StackPanel HorizontalAlignment="Center" Margin="0,20,0,0" Spacing="15">
+				<Border Width="80" Height="80" CornerRadius="50"
+                        Background="{Binding MyAvatarColor}"
+                        BoxShadow="0 4 10 0 #33000000">
+					<TextBlock Text="{Binding MyNickname[0]}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="32"
+                               Foreground="White"
+                               FontWeight="Bold"/>
+				</Border>
+
+				<TextBlock Text="{Binding MyNickname}"
+                           HorizontalAlignment="Center"
+                           FontWeight="SemiBold"
+                           FontSize="16"/>
+
+				<Button Command="{Binding OpenSearchCommand}" Classes="Flat" ToolTip.Tip="添加好友">
+					<TextBlock Text="➕ 添加好友" />
+				</Button>
+				<Button Command="{Binding OpenCreateGroupCommand}" Classes="Flat" ToolTip.Tip="发起群聊">
+					<TextBlock Text="📢 建群" />
+				</Button>
+			</StackPanel>
+		</suki:SukiSideMenu.HeaderContent>
+
+		<suki:SukiSideMenuItem Header="聊天">
+			<suki:SukiSideMenuItem.Icon>
+				<TextBlock Text="💬" FontSize="18" VerticalAlignment="Center"/>
+			</suki:SukiSideMenuItem.Icon>
+
+			<suki:SukiSideMenuItem.PageContent>
+				<Grid ColumnDefinitions="300, *, Auto">
+
+					<suki:GlassCard Grid.Column="0" Margin="10" Padding="0">
+						<DockPanel>
+							<TextBox DockPanel.Dock="Top" Watermark="搜索..." Margin="10" Classes="Flat"/>
+
+							<ListBox ItemsSource="{Binding Contacts}"
+                                     SelectedItem="{Binding SelectedContact}"
+                                     Background="Transparent">
+								<ListBox.ItemTemplate>
+									<DataTemplate>
+										<Grid ColumnDefinitions="50, *" Margin="0,8">
+											<Border Grid.Column="0" Width="40" Height="40" CornerRadius="20"
+                                                    Background="{Binding AvatarColor}">
+												<TextBlock Text="{Binding Name[0]}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="White" FontWeight="Bold"/>
+											</Border>
+											<StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0">
+												<TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/>
+												<TextBlock Text="{Binding LastMessage}" Opacity="0.6" FontSize="12"
+                                                           MaxLines="1" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+											</StackPanel>
+										</Grid>
+									</DataTemplate>
+								</ListBox.ItemTemplate>
+							</ListBox>
+						</DockPanel>
+					</suki:GlassCard>
+
+					<Grid Grid.Column="1" Margin="0,10,10,10">
+
+						<StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="20"
+                                    IsVisible="{Binding SelectedContact, Converter={x:Static ObjectConverters.IsNull}}">
+							<Border Width="100" Height="100" CornerRadius="50" Background="#f0f0f0">
+								<TextBlock Text="Chat"
+                                           FontSize="24" FontWeight="Bold" Foreground="#999"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+							</Border>
+							<TextBlock Text="与其独处，不如畅聊"
+                                       FontSize="16" Foreground="#999" HorizontalAlignment="Center"/>
+						</StackPanel>
+
+						<Panel IsVisible="{Binding SelectedContact, Converter={x:Static ObjectConverters.IsNotNull}}">
+
+							<Grid RowDefinitions="60, *, Auto" IsVisible="{Binding !SelectedContact.IsRequest}">
+
+								<suki:GlassCard Grid.Row="0" Margin="0,0,0,10" Padding="15">
+									<DockPanel>
+										<TextBlock Text="{Binding SelectedContact.Name, FallbackValue='未选择好友'}"
+                                                   FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+										<suki:GlassCard Classes="Primary" IsInteractive="True"
+                                                        DockPanel.Dock="Right" Padding="5" CornerRadius="5">
+											<TextBlock Text="···" FontWeight="Bold"/>
+										</suki:GlassCard>
+									</DockPanel>
+								</suki:GlassCard>
+
+								<suki:GlassCard Grid.Row="1" Margin="0,0,0,10" Padding="0">
+									<ScrollViewer x:Name="MyScrollViewer">
+										<ItemsControl ItemsSource="{Binding Messages}" Margin="15">
+											<ItemsControl.ItemTemplate>
+												<DataTemplate>
+													<Grid Margin="0,10">
+														<StackPanel Orientation="Horizontal" HorizontalAlignment="Left"
+                                                                    IsVisible="{Binding !IsMe}" Spacing="10">
+															<Border Width="35" Height="35" CornerRadius="20" Background="#888888">
+																<TextBlock Text="{Binding SenderName[0]}" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+															</Border>
+
+															<StackPanel>
+																<TextBlock Text="{Binding SenderName}" FontSize="10" Opacity="0.5" Margin="5,0,0,2"/>
+
+																<StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+																	<Border Background="#333333" CornerRadius="0,15,15,15" Padding="12,8">
+																		<Panel>
+																			<TextBlock Text="{Binding Content}" TextWrapping="Wrap" MaxWidth="300"
+                                                                                       IsVisible="{Binding IsText}"/>
+																			<Image Source="{Binding ImageContent}" MaxWidth="250" MaxHeight="250"
+                                                                                   IsVisible="{Binding IsImage}"/>
+																			<Button Classes="Flat" Padding="0"
+                                                                                    IsVisible="{Binding IsFile}"
+                                                                                    Command="{Binding #Root.DataContext.OpenFileCommand}"
+                                                                                    CommandParameter="{Binding}">
+																				<StackPanel Orientation="Horizontal" Spacing="10">
+																					<Border Width="40" Height="40" Background="#EEE" CornerRadius="5">
+																						<TextBlock Text="📄" FontSize="20" Foreground="#333"
+                                                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+																					</Border>
+																					<StackPanel VerticalAlignment="Center">
+																						<TextBlock Text="{Binding FileName}" FontWeight="Bold" Foreground="White"/>
+																						<TextBlock Text="{Binding FileSizeStr}" FontSize="11" Opacity="0.7" Foreground="White"/>
+																					</StackPanel>
+																				</StackPanel>
+																			</Button>
+																		</Panel>
+																	</Border>
+
+																	<TextBlock Text="{Binding Time, StringFormat='HH:mm'}"
+                                                                               FontSize="10" Opacity="0.4"
+                                                                               VerticalAlignment="Bottom" Margin="5,0,0,2"/>
+																</StackPanel>
+															</StackPanel>
+														</StackPanel>
+
+														<StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                                    IsVisible="{Binding IsMe}" Spacing="10">
+
+															<TextBlock Text="{Binding Time, StringFormat='HH:mm'}"
+                                                                       FontSize="10" Opacity="0.4"
+                                                                       VerticalAlignment="Bottom" Margin="0,0,5,2"/>
+
+															<Border Background="{DynamicResource SukiPrimaryColor}" CornerRadius="15,0,15,15" Padding="12,8">
+																<Panel>
+																	<TextBlock Text="{Binding Content}" Foreground="White" TextWrapping="Wrap" MaxWidth="300"
+                                                                               IsVisible="{Binding IsText}"/>
+																	<Image Source="{Binding ImageContent}" MaxWidth="250" MaxHeight="250"
+                                                                           IsVisible="{Binding IsImage}"/>
+																	<Button Classes="Flat" Padding="0"
+                                                                            IsVisible="{Binding IsFile}"
+                                                                            Command="{Binding #Root.DataContext.OpenFileCommand}"
+                                                                            CommandParameter="{Binding}">
+																		<StackPanel Orientation="Horizontal" Spacing="10">
+																			<Border Width="40" Height="40" Background="White" CornerRadius="5">
+																				<TextBlock Text="📄" FontSize="20" Foreground="{DynamicResource SukiPrimaryColor}"
+                                                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+																			</Border>
+																			<StackPanel VerticalAlignment="Center">
+																				<TextBlock Text="{Binding FileName}" FontWeight="Bold" Foreground="White"/>
+																				<TextBlock Text="{Binding FileSizeStr}" FontSize="11" Opacity="0.8" Foreground="White"/>
+																			</StackPanel>
+																		</StackPanel>
+																	</Button>
+																</Panel>
+															</Border>
+															<Border Width="35" Height="35" CornerRadius="20" Background="{DynamicResource SukiPrimaryColor}">
+																<TextBlock Text="我" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+															</Border>
+														</StackPanel>
+													</Grid>
+												</DataTemplate>
+											</ItemsControl.ItemTemplate>
+										</ItemsControl>
+									</ScrollViewer>
+								</suki:GlassCard>
+
+								<suki:GlassCard Grid.Row="2" Padding="10">
+									<Grid ColumnDefinitions="*, Auto, Auto, Auto">
+										<TextBox Grid.Column="0" Text="{Binding InputText}"
+                                                 Watermark="输入消息 (Enter发送，Shift+Enter换行)..."
+                                                 Classes="Flat"
+                                                 Height="40"
+                                                 AcceptsReturn="True"
+                                                 KeyDown="OnInputKeyDown">
+										</TextBox>
+										<Button Grid.Column="1" Command="{Binding PickAndSendImageCommand}"
+                                                Classes="Flat" Margin="5,0" ToolTip.Tip="发送图片">
+											<TextBlock Text="📷" FontSize="18"/>
+										</Button>
+										<Button Grid.Column="2" Command="{Binding PickAndSendFileCommand}"
+                                                Classes="Flat" Margin="0,0,10,0" ToolTip.Tip="发送文件">
+											<TextBlock Text="📎" FontSize="18"/>
+										</Button>
+										<Button Grid.Column="3" Command="{Binding SendCommand}"
+                                                Classes="Flat Primary" Height="40" Width="80">
+											<StackPanel Orientation="Horizontal" Spacing="5">
+												<TextBlock Text="发送"/>
+											</StackPanel>
+										</Button>
+									</Grid>
+								</suki:GlassCard>
+							</Grid>
+
+							<suki:GlassCard IsVisible="{Binding SelectedContact.IsRequest}"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Width="400" Padding="40">
+								<StackPanel Spacing="20">
+									<Border Width="80" Height="80" CornerRadius="40" Background="#FF5252" HorizontalAlignment="Center">
+										<TextBlock Text="?" FontSize="40" Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+									</Border>
+
+									<TextBlock Text="{Binding SelectedContact.Name}"
+                                               FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+									<TextBlock Text="请求添加你为好友" Opacity="0.6" HorizontalAlignment="Center"/>
+
+									<StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="20" Margin="0,20,0,0">
+										<Button Command="{Binding RefuseRequestCommand}"
+                                                Content="拒绝" Classes="Flat" Background="#ff7675" Foreground="White" Width="100" Height="40"/>
+
+										<Button Command="{Binding AcceptRequestCommand}"
+                                                Content="同意" Classes="Flat Primary" Width="100" Height="40"/>
+									</StackPanel>
+								</StackPanel>
+							</suki:GlassCard>
+
+						</Panel>
+
+					</Grid>
+
+					<suki:GlassCard Grid.Column="2"
+                                    Margin="0,10,10,10"
+                                    Width="220"
+                                    IsVisible="{Binding ShowGroupInfo}">
+						<Grid RowDefinitions="Auto, *">
+							<TextBlock Grid.Row="0" Text="群成员" FontWeight="Bold" Margin="10,0,0,10" Opacity="0.7"/>
+
+							<ScrollViewer Grid.Row="1">
+								<ItemsControl ItemsSource="{Binding CurrentGroupMembers}">
+									<ItemsControl.ItemTemplate>
+										<DataTemplate>
+											<Border Padding="8" CornerRadius="8" Background="Transparent" Margin="0,2">
+												<Grid ColumnDefinitions="36, *">
+													<Border Grid.Column="0" Width="30" Height="30" CornerRadius="15" Background="#DDDDDD">
+														<TextBlock Text="{Binding Nickname[0]}"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   FontWeight="Bold" Foreground="#555"/>
+													</Border>
+													<Border Grid.Column="0" Width="10" Height="10" CornerRadius="5"
+                                                            Background="#2ecc71" BorderBrush="White" BorderThickness="1"
+                                                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                            IsVisible="{Binding IsOnline}"/>
+													<TextBlock Grid.Column="1" Text="{Binding Nickname}"
+                                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                                               FontSize="13"/>
+												</Grid>
+											</Border>
+										</DataTemplate>
+									</ItemsControl.ItemTemplate>
+								</ItemsControl>
+							</ScrollViewer>
+						</Grid>
+					</suki:GlassCard>
+
+				</Grid>
+			</suki:SukiSideMenuItem.PageContent>
+		</suki:SukiSideMenuItem>
+
+		<suki:SukiSideMenuItem Header="个人中心">
+			<suki:SukiSideMenuItem.Icon>
+				<TextBlock Text="👤" FontSize="18" VerticalAlignment="Center"/>
+			</suki:SukiSideMenuItem.Icon>
+
+			<suki:SukiSideMenuItem.PageContent>
+				<Grid>
+					<suki:GlassCard HorizontalAlignment="Center" VerticalAlignment="Center" Width="400" Padding="30">
+						<StackPanel Spacing="20">
+							<TextBlock Text="当前账号信息" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+							<Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto, Auto" Margin="0,10">
+								<TextBlock Grid.Row="0" Grid.Column="0" Text="昵称：" Opacity="0.6" Margin="0,0,10,10"/>
+								<TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding MyNickname}" FontWeight="Bold"/>
+
+								<TextBlock Grid.Row="1" Grid.Column="0" Text="I D ：" Opacity="0.6" Margin="0,0,10,10"/>
+								<TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MyId}" FontFamily="Consolas"/>
+
+								<TextBlock Grid.Row="2" Grid.Column="0" Text="版本：" Opacity="0.6"/>
+								<TextBlock Grid.Row="2" Grid.Column="1" Text="v1.0.0 Alpha"/>
+							</Grid>
+
+							<Border Height="1" Background="{DynamicResource SukiBorderBrush}" Margin="0,10"/>
+
+							<Button Command="{Binding LogoutCommand}"
+                                    Content="退出登录"
+                                    Classes="Flat"
+                                    Background="#ff7675"
+                                    Foreground="White"
+                                    HorizontalAlignment="Stretch"
+                                    Height="45"/>
+						</StackPanel>
+					</suki:GlassCard>
+				</Grid>
+			</suki:SukiSideMenuItem.PageContent>
+		</suki:SukiSideMenuItem>
+	</suki:SukiSideMenu>
+</UserControl>

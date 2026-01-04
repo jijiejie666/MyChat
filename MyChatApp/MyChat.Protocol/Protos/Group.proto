@@ -1,0 +1,54 @@
+﻿syntax = "proto3";
+option csharp_namespace = "MyChat.Protocol";
+package MyChat.Protocol;
+
+// 创建群聊请求
+message CreateGroupReq {
+    string groupName = 1;
+    repeated string memberIds = 2; // 初始拉谁进群
+}
+
+// 创建群聊响应
+message CreateGroupResp {
+    bool isSuccess = 1;
+    string groupId = 2;
+    string groupName = 3;
+    string message = 4;
+}
+// 获取群组列表请求
+message GetGroupListReq {
+    string userId = 1;
+}
+
+// 群组信息单元
+message GroupDto {
+    string groupId = 1;
+    string groupName = 2;
+    string ownerId = 3;
+}
+
+// 获取群组列表响应
+message GetGroupListResp {
+    repeated GroupDto groups = 1;
+}
+// --- 获取群成员列表 ---
+
+// 请求：我想看哪个群的成员？
+message GetGroupMembersReq {
+    string groupId = 1;
+}
+
+// 群成员信息单元 (复用之前的 FriendDto 也可以，但为了清晰我们定义一个新的)
+message GroupMemberDto {
+    string userId = 1;
+    string nickname = 2;
+    string avatar = 3;
+    bool isOnline = 4;
+    // 未来可以加: Role (群主/管理员)
+}
+
+// 响应：这是成员列表
+message GetGroupMembersResp {
+    string groupId = 1;
+    repeated GroupMemberDto members = 2;
+}

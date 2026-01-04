@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Protos\Base.proto" />
+    <None Remove="Protos\Chat.proto" />
+    <None Remove="Protos\Group.proto" />
+    <None Remove="Protos\Login.proto" />
+    <None Remove="Protos\Relation.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.33.2" />
+    <PackageReference Include="Grpc.Tools" Version="2.76.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\Base.proto" />
+    <Protobuf Include="Protos\Chat.proto" />
+    <Protobuf Include="Protos\Group.proto" />
+    <Protobuf Include="Protos\Login.proto" />
+    <Protobuf Include="Protos\Relation.proto" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>

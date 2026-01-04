@@ -1,0 +1,60 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:vm="using:MyChat.Desktop.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="MyChat.Desktop.Views.RegisterView"
+             x:DataType="vm:RegisterViewModel">
+
+	<Grid>
+		<Border>
+			<Border.Background>
+				<LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+					<GradientStop Color="#2d3436" Offset="0.0" />
+					<GradientStop Color="#0984e3" Offset="0.5" />
+					<GradientStop Color="#6c5ce7" Offset="1.0" />
+				</LinearGradientBrush>
+			</Border.Background>
+		</Border>
+
+		<suki:GlassCard Width="400" Height="580"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsInteractive="True">
+
+			<StackPanel Spacing="20" Margin="30" VerticalAlignment="Center">
+
+				<TextBlock Text="创建新账号"
+                           FontSize="28"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource SukiPrimaryColor}" />
+
+				<TextBox Text="{Binding Account}" Watermark="设置账号" Classes="Flat" Height="45" CornerRadius="8" />
+				<TextBox Text="{Binding Nickname}" Watermark="您的昵称" Classes="Flat" Height="45" CornerRadius="8" />
+				<TextBox Text="{Binding Password}" Watermark="设置密码" PasswordChar="•" Classes="Flat" Height="45" CornerRadius="8" />
+
+				<Button Command="{Binding RegisterCommand}"
+                        Content="立 即 注 册"
+                        Classes="Flat Primary"
+                        Height="50"
+                        CornerRadius="25"
+                        HorizontalAlignment="Stretch"
+                        IsEnabled="{Binding !IsBusy}" />
+
+				<Button Command="{Binding BackCommand}"
+                        Content="&lt; 返回登录"
+                        Classes="Basic"
+                        HorizontalAlignment="Center"
+                        Opacity="0.7" />
+
+				<TextBlock Text="{Binding StatusMessage}"
+                           Foreground="#ff7675"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap" />
+
+			</StackPanel>
+		</suki:GlassCard>
+	</Grid>
+</UserControl>

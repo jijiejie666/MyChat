@@ -1,0 +1,73 @@
+﻿syntax = "proto3";
+
+// ★★★ 这一行决定了 C# 里生成的类在哪个命名空间下 ★★★
+// 如果这行写错（比如写成了 MyChat.Relation），你在代码里用 MyChat.Protocol 就会找不到
+option csharp_namespace = "MyChat.Protocol"; 
+
+package MyChat.Protocol;
+
+// 1. 搜索用户请求
+message SearchUserReq {
+    string account = 1;
+}
+
+// 搜索响应
+message SearchUserResp {
+    bool isSuccess = 1;
+    string userId = 2;
+    string nickname = 3;
+    string account = 4;
+}
+
+// 2. 添加好友请求
+message AddFriendReq {
+    string myUserId = 1;
+    string friendUserId = 2;
+}
+
+message AddFriendResp {
+    bool isSuccess = 1;
+    string message = 2;
+}
+
+// 3. 获取好友列表请求
+message GetFriendListReq {
+    string userId = 1;
+}
+
+// 好友信息单元
+message FriendDto {
+    string userId = 1;
+    string nickname = 2;
+    string avatar = 3;
+    bool isOnline = 4;
+}
+
+// 获取好友列表响应
+message GetFriendListResp {
+    repeated FriendDto friends = 1;
+}
+// 好友状态变更通知 (服务器主动推送给客户端)
+message FriendStatusNotice {
+    string friendId = 1;
+    bool isOnline = 2; // true=上线, false=下线
+}
+// --- 好友验证相关 ---
+
+message FriendRequestNotification {
+    string senderId = 1;
+    string senderNickname = 2; 
+}
+
+// [新增] 2. 接收方处理请求（同意/拒绝）
+message HandleFriendRequestReq {
+    string requesterId = 1; // 申请人的ID
+    bool isAccept = 2;      // true=同意, false=拒绝
+}
+
+// [新增] 3. 处理结果响应
+message HandleFriendRequestResp {
+    bool isSuccess = 1;
+    string message = 2;
+    string friendId = 3;    // 如果同意了，返回对方ID以便刷新列表
+}

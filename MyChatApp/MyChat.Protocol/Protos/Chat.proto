@@ -1,0 +1,27 @@
+syntax = "proto3";
+option csharp_namespace = "MyChat.Protocol";
+package MyChat.Protocol;
+
+// 消息类型枚举
+enum MsgType {
+    Text = 0;
+    Image = 1;
+    File = 2; // 【新增】文件类型
+}
+
+message ChatMsg {
+    string id = 1;
+    string senderId = 2;
+    string receiverId = 3;
+    string content = 4;
+    int64 sendTime = 5;
+    bool isGroup = 6;
+    MsgType type = 7;
+
+    // 【新增】携带发送者的展示信息
+    string senderName = 8;   // 发送者昵称
+    string senderAvatar = 9; // 发送者头像 (存颜色代码或URL)
+    // 【新增】文件元数据
+    string fileName = 10; // 文件名 (如 "report.pdf")
+    int64 fileSize = 11;  // 文件大小 (字节)
+}
