@@ -3,24 +3,54 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             xmlns:views="clr-namespace:MyChat.Desktop.Views"
              xmlns:vm="using:MyChat.Desktop.ViewModels"
              mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
              x:Class="MyChat.Desktop.Views.ChatView"
              x:DataType="vm:ChatViewModel"
              x:Name="Root">
 	<suki:SukiSideMenu>
+
 		<suki:SukiSideMenu.HeaderContent>
 			<StackPanel HorizontalAlignment="Center" Margin="0,20,0,0" Spacing="15">
-				<Border Width="80" Height="80" CornerRadius="50"
-                        Background="{Binding MyAvatarColor}"
-                        BoxShadow="0 4 10 0 #33000000">
-					<TextBlock Text="{Binding MyNickname[0]}"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               FontSize="32"
-                               Foreground="White"
-                               FontWeight="Bold"/>
-				</Border>
+
+				<Button Command="{Binding ChangeAvatarCommand}"
+                        Width="80" Height="80"
+                        CornerRadius="40"
+                        Padding="0"
+                        BorderThickness="2"
+                        BorderBrush="{DynamicResource SukiPrimaryColor}"
+                        HorizontalAlignment="Center"
+                        Cursor="Hand"
+                        ToolTip.Tip="点击更换头像">
+					<Button.Styles>
+						<Style Selector="Button">
+							<Setter Property="Background" Value="Transparent"/>
+						</Style>
+						<Style Selector="Button:pointerover /template/ ContentPresenter">
+							<Setter Property="Background" Value="#22FFFFFF"/>
+						</Style>
+					</Button.Styles>
+
+					<Border CornerRadius="40" ClipToBounds="True">
+						<Panel>
+							<Border Background="{Binding MyAvatarColor}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+							<TextBlock Text="{Binding MyNickname[0]}"
+                                       IsVisible="{Binding MyAvatar, Converter={x:Static ObjectConverters.IsNull}}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       FontSize="32"
+                                       Foreground="White"
+                                       FontWeight="Bold"/>
+
+							<Image Source="{Binding MyAvatar}"
+                                   Stretch="UniformToFill"
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Stretch"/>
+						</Panel>
+					</Border>
+				</Button>
 
 				<TextBlock Text="{Binding MyNickname}"
                            HorizontalAlignment="Center"
@@ -54,12 +84,17 @@
 								<ListBox.ItemTemplate>
 									<DataTemplate>
 										<Grid ColumnDefinitions="50, *" Margin="0,8">
-											<Border Grid.Column="0" Width="40" Height="40" CornerRadius="20"
-                                                    Background="{Binding AvatarColor}">
-												<TextBlock Text="{Binding Name[0]}"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                           Foreground="White" FontWeight="Bold"/>
+											<Border Grid.Column="0" Width="40" Height="40" CornerRadius="20" ClipToBounds="True">
+												<Panel>
+													<Border Background="{Binding AvatarColor}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+													<TextBlock Text="{Binding Name[0]}"
+                                                               IsVisible="{Binding AvatarBitmap, Converter={x:Static ObjectConverters.IsNull}}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Foreground="White" FontWeight="Bold"/>
+													<Image Source="{Binding AvatarBitmap}" Stretch="UniformToFill"/>
+												</Panel>
 											</Border>
+
 											<StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0">
 												<TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"/>
 												<TextBlock Text="{Binding LastMessage}" Opacity="0.6" FontSize="12"
@@ -106,10 +141,15 @@
 											<ItemsControl.ItemTemplate>
 												<DataTemplate>
 													<Grid Margin="0,10">
+
 														<StackPanel Orientation="Horizontal" HorizontalAlignment="Left"
                                                                     IsVisible="{Binding !IsMe}" Spacing="10">
-															<Border Width="35" Height="35" CornerRadius="20" Background="#888888">
-																<TextBlock Text="{Binding SenderName[0]}" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+															<Border Width="35" Height="35" CornerRadius="20" Background="#888888" ClipToBounds="True">
+																<Panel>
+																	<TextBlock Text="{Binding SenderName[0]}" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+																	<Image Source="{Binding SenderAvatarBitmap}" Stretch="UniformToFill"/>
+																</Panel>
 															</Border>
 
 															<StackPanel>
@@ -139,7 +179,6 @@
 																			</Button>
 																		</Panel>
 																	</Border>
-
 																	<TextBlock Text="{Binding Time, StringFormat='HH:mm'}"
                                                                                FontSize="10" Opacity="0.4"
                                                                                VerticalAlignment="Bottom" Margin="5,0,0,2"/>
@@ -177,8 +216,11 @@
 																	</Button>
 																</Panel>
 															</Border>
-															<Border Width="35" Height="35" CornerRadius="20" Background="{DynamicResource SukiPrimaryColor}">
-																<TextBlock Text="我" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+															<Border Width="35" Height="35" CornerRadius="20" Background="{DynamicResource SukiPrimaryColor}" ClipToBounds="True">
+																<Panel>
+																	<TextBlock Text="我" Foreground="White" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+																	<Image Source="{Binding #Root.DataContext.MyAvatar}" Stretch="UniformToFill"/>
+																</Panel>
 															</Border>
 														</StackPanel>
 													</Grid>
@@ -190,12 +232,14 @@
 
 								<suki:GlassCard Grid.Row="2" Padding="10">
 									<Grid ColumnDefinitions="*, Auto, Auto, Auto">
-										<TextBox Grid.Column="0" Text="{Binding InputText}"
+										<TextBox Grid.Column="0"
+                                                 x:Name="InputTextBox"
+                                                 Text="{Binding InputText}"
                                                  Watermark="输入消息 (Enter发送，Shift+Enter换行)..."
                                                  Classes="Flat"
                                                  Height="40"
                                                  AcceptsReturn="True"
-                                                 KeyDown="OnInputKeyDown">
+                                                 TextWrapping="Wrap">
 										</TextBox>
 										<Button Grid.Column="1" Command="{Binding PickAndSendImageCommand}"
                                                 Classes="Flat" Margin="5,0" ToolTip.Tip="发送图片">
@@ -238,9 +282,7 @@
 									</StackPanel>
 								</StackPanel>
 							</suki:GlassCard>
-
 						</Panel>
-
 					</Grid>
 
 					<suki:GlassCard Grid.Column="2"
@@ -249,22 +291,24 @@
                                     IsVisible="{Binding ShowGroupInfo}">
 						<Grid RowDefinitions="Auto, *">
 							<TextBlock Grid.Row="0" Text="群成员" FontWeight="Bold" Margin="10,0,0,10" Opacity="0.7"/>
-
 							<ScrollViewer Grid.Row="1">
 								<ItemsControl ItemsSource="{Binding CurrentGroupMembers}">
 									<ItemsControl.ItemTemplate>
 										<DataTemplate>
 											<Border Padding="8" CornerRadius="8" Background="Transparent" Margin="0,2">
 												<Grid ColumnDefinitions="36, *">
-													<Border Grid.Column="0" Width="30" Height="30" CornerRadius="15" Background="#DDDDDD">
-														<TextBlock Text="{Binding Nickname[0]}"
-                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                   FontWeight="Bold" Foreground="#555"/>
+													<Border Grid.Column="0" Width="30" Height="30" CornerRadius="15" Background="#DDDDDD" ClipToBounds="True">
+														<Panel>
+															<TextBlock Text="{Binding Nickname[0]}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="#555"/>
+															<Image Source="{Binding Avatar, Converter={x:Static vm:ChatViewModel.Base64ToBitmapConverter}}" Stretch="UniformToFill"/>
+														</Panel>
 													</Border>
+
 													<Border Grid.Column="0" Width="10" Height="10" CornerRadius="5"
                                                             Background="#2ecc71" BorderBrush="White" BorderThickness="1"
                                                             HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                             IsVisible="{Binding IsOnline}"/>
+
 													<TextBlock Grid.Column="1" Text="{Binding Nickname}"
                                                                VerticalAlignment="Center" Margin="10,0,0,0"
                                                                FontSize="13"/>
@@ -276,8 +320,16 @@
 							</ScrollViewer>
 						</Grid>
 					</suki:GlassCard>
-
 				</Grid>
+			</suki:SukiSideMenuItem.PageContent>
+		</suki:SukiSideMenuItem>
+
+		<suki:SukiSideMenuItem Header="控制台" IsVisible="{Binding IsAdmin}">
+			<suki:SukiSideMenuItem.Icon>
+				<TextBlock Text="🛡️" FontSize="18" VerticalAlignment="Center"/>
+			</suki:SukiSideMenuItem.Icon>
+			<suki:SukiSideMenuItem.PageContent>
+				<views:AdminView />
 			</suki:SukiSideMenuItem.PageContent>
 		</suki:SukiSideMenuItem>
 
@@ -317,5 +369,6 @@
 				</Grid>
 			</suki:SukiSideMenuItem.PageContent>
 		</suki:SukiSideMenuItem>
+
 	</suki:SukiSideMenu>
 </UserControl>

@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks; // 引用 Task
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;     // 引用 Dispatcher
 using MyChat.Desktop.ViewModels;
@@ -15,7 +16,13 @@ namespace MyChat.Desktop.Views
 
         public ChatView()
         {
+
             InitializeComponent();
+            var inputBox = this.FindControl<TextBox>("InputTextBox");
+            if (inputBox != null)
+            {
+                inputBox.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
+            }
         }
 
         private void InitializeComponent()
@@ -59,27 +66,31 @@ namespace MyChat.Desktop.Views
         // 处理输入框按键逻辑 (Enter 发送，Shift+Enter 换行)
         private void OnInputKeyDown(object? sender, KeyEventArgs e)
         {
+            // 1. 检查是否是 Enter 键
             if (e.Key == Key.Enter)
             {
-                // 检查是否按下了 Shift
+                // 2. 检查是否按下了 Shift (Shift + Enter = 换行)
                 if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
                 {
-                    // Shift + Enter -> 允许换行 (TextBox 默认行为)
+                    // 不处理，让事件继续传递给 TextBox，执行默认换行
                     return;
                 }
-                else
-                {
-                    // 单独按 Enter -> 发送消息
-                    e.Handled = true; // 阻止 TextBox 插入换行符
 
-                    // 调用 ViewModel 的 SendCommand
-                    if (DataContext is ChatViewModel vm)
+                // 3. 单独按 Enter -> 发送
+                var textBox = sender as TextBox;
+                if (textBox != null && DataContext is ChatViewModel vm)
+                {
+                    // 强制同步最新文本（防止绑定延迟）
+                    vm.InputText = textBox.Text ?? "";
+
+                    // 执行发送
+                    if (vm.SendCommand.CanExecute(null))
                     {
-                        // 检查命令是否可以执行
-                        if (vm.SendCommand.CanExecute(null))
-                        {
-                            vm.SendCommand.Execute(null);
-                        }
+                        vm.SendCommand.Execute(null);
+
+                        // ★★★ 关键：标记为已处理，阻止 TextBox 接收这个 Enter ★★★
+                        // 这样 TextBox 就永远不知道你按了 Enter，也就不会换行了
+                        e.Handled = true;
                     }
                 }
             }

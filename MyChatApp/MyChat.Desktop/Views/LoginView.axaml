@@ -52,7 +52,7 @@
                                Opacity="0.6"
                                HorizontalAlignment="Center"/>
 				</StackPanel>
-
+				<TextBox Text="{Binding ServerIp}" Watermark="服务器 IP (例如: 192.168.1.5)" Classes="Flat" Margin="0,0,0,10"/>
 				<StackPanel Spacing="15">
 					<TextBox Text="{Binding Account}"
                              Watermark="账号 / 邮箱"

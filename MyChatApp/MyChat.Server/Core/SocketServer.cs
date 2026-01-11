@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using MyChat.Protocol;
@@ -23,8 +24,8 @@ namespace MyChat.Server.Core
         {
             try
             {
-                // 1. 确保机器人账号存在
-                InitRobotAccount();
+                // 1. 初始化系统账号 (机器人 + 管理员)
+                InitSystemAccounts();
 
                 // 2. 启动监听
                 _listener = new TcpListener(IPAddress.Any, port);
@@ -40,26 +41,41 @@ namespace MyChat.Server.Core
             }
         }
 
-        // 初始化机器人方法
-        private void InitRobotAccount()
+        private void InitSystemAccounts()
         {
             using (var db = new MyChatContext())
             {
-                // 检查 ID 为 9999 的用户是否存在
+                // 1. 检查 AI 机器人 (9999)
                 if (!db.Users.Any(u => u.Id == "9999"))
                 {
-                    db.Users.Add(new Entities.UserEntity
+                    db.Users.Add(new UserEntity
                     {
                         Id = "9999",
                         Account = "robot",
-                        Password = "123", // 密码随便，反正它不登录
+                        Password = "123",
                         Nickname = "AI 助手",
-                        Avatar = "#00B894", // 给个特别的绿色
+                        Avatar = "#00B894", // 绿色
                         CreateTime = DateTime.Now
                     });
-                    db.SaveChanges();
                     Console.WriteLine("[系统] AI 机器人账号 (ID: 9999) 初始化完成");
                 }
+
+                // 2. 检查 超级管理员 (10000)
+                if (!db.Users.Any(u => u.Id == "10000"))
+                {
+                    db.Users.Add(new UserEntity
+                    {
+                        Id = "10000",
+                        Account = "superadmin",
+                        Password = "admin",
+                        Nickname = "系统管理员",
+                        Avatar = "#FF5252",    // 红色 
+                        CreateTime = DateTime.Now
+                    });
+                    Console.WriteLine("[系统] 超级管理员账号 (ID: 10000) 初始化完成");
+                }
+
+                db.SaveChanges();
             }
         }
 
@@ -96,7 +112,7 @@ namespace MyChat.Server.Core
         }
 
         /// <summary>
-        /// 核心业务处理
+        /// [功能增强版] 核心业务处理 (含头像更新逻辑)
         /// </summary>
         private void HandlePacket(ClientSession session, NetworkPacket packet)
         {
@@ -115,101 +131,64 @@ namespace MyChat.Server.Core
                         string msg = "";
                         string userId = "";
                         string nickname = "";
+                        string avatar = ""; // ★★★ 新增：准备接收头像 ★★★
 
                         using (var db = new MyChatContext())
                         {
                             var user = db.Users.FirstOrDefault(u => u.Account == req.Account);
-                            if (user == null)
-                            {
-                                msg = "账号不存在";
-                            }
-                            else if (user.Password != req.Password)
-                            {
-                                msg = "密码错误";
-                            }
+                            if (user == null) msg = "账号不存在";
+                            else if (user.Password != req.Password) msg = "密码错误";
                             else
                             {
                                 isSuccess = true;
                                 msg = "登录成功";
                                 userId = user.Id;
                                 nickname = user.Nickname;
+                                avatar = user.Avatar; // ★★★ 从数据库读取头像 ★★★
                             }
                         }
 
                         if (isSuccess)
                         {
-                            // 注册 Session
                             SessionManager.Instance.RegisterUser(userId, session);
-
-                            // 上线广播 & 离线消息推送 & 补发好友申请
                             Task.Run(() =>
                             {
                                 try
                                 {
                                     using (var db = new MyChatContext())
                                     {
-                                        // --- 上线广播 ---
                                         var myFriendIds = db.Friends.Where(f => f.UserId == userId).Select(f => f.FriendId).ToList();
                                         var notice = new FriendStatusNotice { FriendId = userId, IsOnline = true };
                                         var packetBody = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(notice));
                                         var noticePacket = new NetworkPacket { Type = PacketType.FriendStatusNotice, Body = packetBody };
+                                        foreach (var friendId in myFriendIds) SessionManager.Instance.GetSessionByUserId(friendId)?.Send(noticePacket);
 
-                                        foreach (var friendId in myFriendIds)
-                                        {
-                                            var friendSession = SessionManager.Instance.GetSessionByUserId(friendId);
-                                            friendSession?.Send(noticePacket);
-                                        }
-
-                                        // --- 推送离线消息 ---
-                                        var offlineMsgs = db.Messages
-                                            .Where(m => m.ReceiverId == userId && !m.IsGroup && !m.IsDelivered)
-                                            .OrderBy(m => m.SendTime).ToList();
-
+                                        var offlineMsgs = db.Messages.Where(m => m.ReceiverId == userId && !m.IsGroup && !m.IsDelivered).OrderBy(m => m.SendTime).ToList();
                                         if (offlineMsgs.Count > 0)
                                         {
-                                            Console.WriteLine($"[离线消息] 用户 {userId} 有 {offlineMsgs.Count} 条未读，正在推送...");
                                             var mySession = SessionManager.Instance.GetSessionByUserId(userId);
                                             if (mySession != null)
                                             {
                                                 foreach (var dbMsg in offlineMsgs)
                                                 {
-                                                    var chatMsg = new ChatMsg
-                                                    {
-                                                        Id = dbMsg.Id,
-                                                        SenderId = dbMsg.SenderId,
-                                                        ReceiverId = dbMsg.ReceiverId,
-                                                        Content = dbMsg.Content,
-                                                        SendTime = dbMsg.SendTime,
-                                                        IsGroup = dbMsg.IsGroup,
-                                                        Type = (MyChat.Protocol.MsgType)dbMsg.Type,
-                                                        SenderName = dbMsg.SenderName,
-                                                        SenderAvatar = dbMsg.SenderAvatar,
-                                                        FileName = dbMsg.FileName,
-                                                        FileSize = dbMsg.FileSize
-                                                    };
-                                                    var chatPacket = new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(chatMsg)) };
-                                                    mySession.Send(chatPacket);
+                                                    var chatMsg = new ChatMsg { Id = dbMsg.Id, SenderId = dbMsg.SenderId, ReceiverId = dbMsg.ReceiverId, Content = dbMsg.Content, SendTime = dbMsg.SendTime, IsGroup = dbMsg.IsGroup, Type = (MyChat.Protocol.MsgType)dbMsg.Type, SenderName = dbMsg.SenderName, SenderAvatar = dbMsg.SenderAvatar, FileName = dbMsg.FileName, FileSize = dbMsg.FileSize };
+                                                    mySession.Send(new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(chatMsg)) });
                                                     dbMsg.IsDelivered = true;
                                                 }
                                                 db.SaveChanges();
                                             }
                                         }
 
-                                        // --- 补发未处理的好友申请 ---
-                                        var pendingReqs = db.FriendRequests
-                                            .Where(r => r.ReceiverId == userId && r.Status == 0) // 查发给我的、状态为0(等待)
-                                            .ToList();
-
+                                        var pendingReqs = db.FriendRequests.Where(r => r.ReceiverId == userId && r.Status == 0).ToList();
                                         if (pendingReqs.Count > 0)
                                         {
-                                            Console.WriteLine($"[好友] 用户 {userId} 有 {pendingReqs.Count} 条待处理申请，正在推送...");
                                             var mySession = SessionManager.Instance.GetSessionByUserId(userId);
                                             if (mySession != null)
                                             {
                                                 foreach (var preq in pendingReqs)
                                                 {
                                                     var sender = db.Users.Find(preq.SenderId);
-                                                    var noti = new FriendRequestNotification { SenderId = preq.SenderId, SenderNickname = sender?.Nickname ?? "未知用户" };
+                                                    var noti = new FriendRequestNotification { SenderId = preq.SenderId, SenderNickname = sender?.Nickname ?? "未知" };
                                                     mySession.Send(new NetworkPacket { Type = PacketType.FriendRequestNotification, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(noti)) });
                                                 }
                                             }
@@ -219,9 +198,8 @@ namespace MyChat.Server.Core
                                 catch (Exception ex) { Console.WriteLine($"[登录后处理] 异常: {ex.Message}"); }
                             });
                         }
-
-                        var resp = new LoginResp { IsSuccess = isSuccess, Message = msg, UserId = userId, Nickname = nickname };
-                        Send(session, PacketType.LoginResponse, resp);
+                        // ★★★ 把头像带回给客户端 ★★★
+                        Send(session, PacketType.LoginResponse, new LoginResp { IsSuccess = isSuccess, Message = msg, UserId = userId, Nickname = nickname, Avatar = avatar });
                     }
                     catch (Exception ex) { Console.WriteLine($"[登录] 异常: {ex.Message}"); }
                     break;
@@ -254,133 +232,148 @@ namespace MyChat.Server.Core
                                     Account = req.Account,
                                     Password = req.Password,
                                     Nickname = req.Nickname,
-                                    Avatar = "#" + new Random().Next(0x100000, 0xFFFFFF).ToString("X6"),
+                                    Avatar = "#" + new Random().Next(0x100000, 0xFFFFFF).ToString("X6"), // 默认随机色
                                     CreateTime = DateTime.Now
                                 };
                                 db.Users.Add(newUser);
+
+                                if (newId != "10000")
+                                {
+                                    db.Friends.Add(new FriendEntity { UserId = newId, FriendId = "10000", CreateTime = DateTime.Now });
+                                    db.Friends.Add(new FriendEntity { UserId = "10000", FriendId = newId, CreateTime = DateTime.Now });
+                                }
+
                                 db.SaveChanges();
                                 isSuccess = true;
                                 msg = "注册成功";
-                                Console.WriteLine($"[注册] 写入数据库成功 ID: {newId}");
+
+                                // 强制刷新管理员列表
+                                var adminSession = SessionManager.Instance.GetSessionByUserId("10000");
+                                if (adminSession != null)
+                                {
+                                    var adminFriendIds = db.Friends.Where(f => f.UserId == "10000").Select(f => f.FriendId).ToList();
+                                    var adminFriends = db.Users.Where(u => adminFriendIds.Contains(u.Id)).ToList();
+                                    var adminListResp = new GetFriendListResp();
+                                    foreach (var u in adminFriends)
+                                    {
+                                        bool isOnline = (u.Id == "9999") || (SessionManager.Instance.GetSessionByUserId(u.Id) != null);
+                                        adminListResp.Friends.Add(new FriendDto { UserId = u.Id, Nickname = u.Nickname, Avatar = u.Avatar, IsOnline = isOnline });
+                                    }
+                                    adminSession.Send(new NetworkPacket { Type = PacketType.GetFriendListResponse, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(adminListResp)) });
+                                    Console.WriteLine($"[系统] 已向管理员推送最新花名册");
+                                }
                             }
                         }
-                        var resp = new RegisterResp { IsSuccess = isSuccess, Message = msg, NewUserId = newId };
-                        Send(session, PacketType.RegisterResponse, resp);
+                        Send(session, PacketType.RegisterResponse, new RegisterResp { IsSuccess = isSuccess, Message = msg, NewUserId = newId });
                     }
                     catch (Exception ex) { Console.WriteLine($"[注册] 异常: {ex.Message}"); }
                     break;
 
                 // ================================================================
-                // 3. 聊天消息转发 (含 AI 拦截)
+                // 3. 聊天消息转发
                 // ================================================================
                 case PacketType.ChatMessage:
                     try
                     {
                         var chatMsg = ProtobufHelper.Deserialize<ChatMsg>(packet.Body.ToByteArray());
-                        Console.WriteLine($"[消息] {chatMsg.SenderId} -> {chatMsg.ReceiverId} (Type={chatMsg.Type})");
+                        Console.WriteLine($"[消息] {chatMsg.SenderId} -> {chatMsg.ReceiverId} 内容: {chatMsg.Content}");
+
+                        bool isAdmin = false;
+                        if (chatMsg.SenderId == "10000" || chatMsg.SenderId == "8888") isAdmin = true;
+                        else
+                        {
+                            if (!string.IsNullOrEmpty(chatMsg.SenderName) && chatMsg.SenderName.ToLower().Contains("admin")) isAdmin = true;
+                            else
+                            {
+                                using (var db = new MyChatContext())
+                                {
+                                    var u = db.Users.Find(chatMsg.SenderId);
+                                    if (u != null && u.Nickname.ToLower().Contains("admin")) isAdmin = true;
+                                }
+                            }
+                        }
+
+                        if (chatMsg.Content.StartsWith("/")) Console.WriteLine($"[指令调试] 用户:{chatMsg.SenderId} 尝试执行指令. IsAdmin结果: {isAdmin}");
+
+                        if (isAdmin && chatMsg.Type == MyChat.Protocol.MsgType.Text)
+                        {
+                            if (chatMsg.Content.StartsWith("/broadcast "))
+                            {
+                                string broadcastContent = chatMsg.Content.Substring(11);
+                                Console.WriteLine($"[Admin] 执行广播: {broadcastContent}");
+                                var broadcastMsg = new ChatMsg { Id = Guid.NewGuid().ToString(), SenderId = "SYSTEM", SenderName = "📢 系统广播", Content = broadcastContent, SendTime = DateTime.UtcNow.Ticks, Type = MyChat.Protocol.MsgType.Text, SenderAvatar = "#FF5252" };
+                                byte[] broadcastBytes = ProtobufHelper.Serialize(broadcastMsg);
+                                var broadcastPacket = new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(broadcastBytes) };
+                                var allSessions = SessionManager.Instance.GetAllSessions();
+                                foreach (var s in allSessions) s.Send(broadcastPacket);
+                                return;
+                            }
+                            if (chatMsg.Content.StartsWith("/kick "))
+                            {
+                                string targetId = chatMsg.Content.Substring(6).Trim();
+                                Console.WriteLine($"[Admin] 执行踢人: '{targetId}'");
+                                var targetSession = SessionManager.Instance.GetSessionByUserId(targetId);
+                                if (targetSession != null)
+                                {
+                                    var kickMsg = new ChatMsg { Id = Guid.NewGuid().ToString(), SenderId = "SYSTEM", SenderName = "系统", Content = "您已被管理员强制下线。", Type = MyChat.Protocol.MsgType.Text };
+                                    targetSession.Send(new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(kickMsg)) });
+                                    Thread.Sleep(100);
+                                    try { targetSession.ClientSocket?.Close(); } catch { }
+                                    SessionManager.Instance.RemoveSession(targetId);
+                                    Console.WriteLine($"[Admin] 用户 {targetId} 已成功踢出");
+                                }
+                                return;
+                            }
+                        }
 
                         using (var db = new MyChatContext())
                         {
-                            var dbMsg = new ServerMessageEntity
-                            {
-                                Id = chatMsg.Id,
-                                SenderId = chatMsg.SenderId,
-                                ReceiverId = chatMsg.ReceiverId,
-                                Content = chatMsg.Content,
-                                SendTime = chatMsg.SendTime,
-                                IsGroup = chatMsg.IsGroup,
-                                Type = (int)chatMsg.Type,
-                                SenderName = chatMsg.SenderName,
-                                SenderAvatar = chatMsg.SenderAvatar,
-                                FileName = chatMsg.FileName,
-                                FileSize = chatMsg.FileSize,
-                                IsDelivered = false
-                            };
+                            var dbMsg = new ServerMessageEntity { Id = chatMsg.Id, SenderId = chatMsg.SenderId, ReceiverId = chatMsg.ReceiverId, Content = chatMsg.Content, SendTime = chatMsg.SendTime, IsGroup = chatMsg.IsGroup, Type = (int)chatMsg.Type, SenderName = chatMsg.SenderName, SenderAvatar = chatMsg.SenderAvatar, FileName = chatMsg.FileName, FileSize = chatMsg.FileSize, IsDelivered = false };
 
-                            // AI 拦截逻辑
                             if (chatMsg.ReceiverId == "9999")
                             {
-                                Console.WriteLine($"[AI] 收到用户 {chatMsg.SenderId} 的消息，正在思考...");
+                                Console.WriteLine(">>> 正在调用 SiliconFlow AI 接口...");
                                 dbMsg.IsDelivered = true;
-
                                 _ = Task.Run(async () =>
                                 {
-                                    string replyContent = await Services.AIService.Instance.GetReplyAsync(chatMsg.Content);
-                                    var replyMsg = new ChatMsg
-                                    {
-                                        Id = Guid.NewGuid().ToString(),
-                                        SenderId = "9999",
-                                        ReceiverId = chatMsg.SenderId,
-                                        Content = replyContent,
-                                        SendTime = DateTime.UtcNow.Ticks,
-                                        IsGroup = false,
-                                        Type = MyChat.Protocol.MsgType.Text,
-                                        SenderName = "AI 助手",
-                                        SenderAvatar = "#00B894"
-                                    };
-
+                                    string replyMsgId = Guid.NewGuid().ToString();
                                     var userSession = SessionManager.Instance.GetSessionByUserId(chatMsg.SenderId);
-                                    userSession?.Send(new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(replyMsg)) });
-
+                                    string fullContent = await MyChat.Server.Service.AIService.Instance.GetReplyStreamAsync(chatMsg.Content, async (segment) =>
+                                    {
+                                        if (userSession != null)
+                                        {
+                                            var streamMsg = new ChatMsg { Id = replyMsgId, SenderId = "9999", ReceiverId = chatMsg.SenderId, Content = segment, SendTime = DateTime.UtcNow.Ticks, Type = MyChat.Protocol.MsgType.Aistream, SenderName = "AI 助手", SenderAvatar = "#00B894" };
+                                            userSession.Send(new NetworkPacket { Type = PacketType.ChatMessage, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(streamMsg)) });
+                                        }
+                                    });
                                     using (var replyDb = new MyChatContext())
                                     {
-                                        replyDb.Messages.Add(new ServerMessageEntity
-                                        {
-                                            Id = replyMsg.Id,
-                                            SenderId = replyMsg.SenderId,
-                                            ReceiverId = replyMsg.ReceiverId,
-                                            Content = replyMsg.Content,
-                                            SendTime = replyMsg.SendTime,
-                                            IsGroup = false,
-                                            Type = (int)replyMsg.Type,
-                                            SenderName = replyMsg.SenderName,
-                                            SenderAvatar = replyMsg.SenderAvatar,
-                                            IsDelivered = true
-                                        });
+                                        replyDb.Messages.Add(new ServerMessageEntity { Id = replyMsgId, SenderId = "9999", ReceiverId = chatMsg.SenderId, Content = fullContent, SendTime = DateTime.UtcNow.Ticks, IsGroup = false, Type = (int)MyChat.Protocol.MsgType.Text, SenderName = "AI 助手", SenderAvatar = "#00B894", IsDelivered = true });
                                         replyDb.SaveChanges();
                                     }
-                                    Console.WriteLine($"[AI] 已回复用户 {chatMsg.SenderId}");
                                 });
                             }
-                            // 群聊转发
                             else if (chatMsg.IsGroup)
                             {
                                 dbMsg.IsDelivered = true;
                                 var memberIds = db.GroupMembers.Where(g => g.GroupId == chatMsg.ReceiverId && g.UserId != chatMsg.SenderId).Select(g => g.UserId).ToList();
-                                foreach (var memberId in memberIds)
-                                {
-                                    var memSession = SessionManager.Instance.GetSessionByUserId(memberId);
-                                    memSession?.Send(packet);
-                                }
+                                foreach (var memberId in memberIds) SessionManager.Instance.GetSessionByUserId(memberId)?.Send(packet);
                             }
-                            // 私聊转发
                             else
                             {
                                 var targetSession = SessionManager.Instance.GetSessionByUserId(chatMsg.ReceiverId);
-                                if (targetSession != null)
-                                {
-                                    targetSession.Send(packet);
-                                    dbMsg.IsDelivered = true;
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"   -> 目标 {chatMsg.ReceiverId} 离线，已存入离线消息库");
-                                    dbMsg.IsDelivered = false;
-                                }
+                                if (targetSession != null) { targetSession.Send(packet); dbMsg.IsDelivered = true; }
+                                else dbMsg.IsDelivered = false;
                             }
                             db.Messages.Add(dbMsg);
                             db.SaveChanges();
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"消息异常: {ex.Message}");
-                        if (ex.InnerException != null) Console.WriteLine($"内部错误: {ex.InnerException.Message}");
-                    }
+                    catch (Exception ex) { Console.WriteLine($"消息异常: {ex.Message}"); }
                     break;
 
                 // ================================================================
-                // 4. 搜索用户
+                // 4. 用户相关 (搜索/加好友/更新信息)
                 // ================================================================
                 case PacketType.SearchUserRequest:
                     try
@@ -397,57 +390,39 @@ namespace MyChat.Server.Core
                     catch (Exception ex) { Console.WriteLine($"[搜索] 异常: {ex.Message}"); }
                     break;
 
-                // ================================================================
-                // 5. 添加好友 (申请逻辑)
-                // ================================================================
                 case PacketType.AddFriendRequest:
                     try
                     {
                         var req = ProtobufHelper.Deserialize<AddFriendReq>(packet.Body.ToByteArray());
                         using (var db = new MyChatContext())
                         {
-                            if (db.Friends.Any(f => f.UserId == req.MyUserId && f.FriendId == req.FriendUserId))
+                            if (db.Friends.Any(f => f.UserId == req.MyUserId && f.FriendId == req.FriendUserId)) Send(session, PacketType.AddFriendResponse, new AddFriendResp { IsSuccess = false, Message = "已经是好友了" });
+                            else
                             {
-                                Send(session, PacketType.AddFriendResponse, new AddFriendResp { IsSuccess = false, Message = "已经是好友了" });
-                                break;
-                            }
-
-                            if (!db.FriendRequests.Any(r => r.SenderId == req.MyUserId && r.ReceiverId == req.FriendUserId && r.Status == 0))
-                            {
-                                var sender = db.Users.Find(req.MyUserId);
-                                db.FriendRequests.Add(new FriendRequestEntity
+                                if (!db.FriendRequests.Any(r => r.SenderId == req.MyUserId && r.ReceiverId == req.FriendUserId && r.Status == 0))
                                 {
-                                    SenderId = req.MyUserId,
-                                    ReceiverId = req.FriendUserId,
-                                    Status = 0,
-                                    CreateTime = DateTime.Now
-                                });
-                                db.SaveChanges();
-                                Console.WriteLine($"[数据库] 好友申请已存入: {req.MyUserId} -> {req.FriendUserId}");
-
-                                var targetSession = SessionManager.Instance.GetSessionByUserId(req.FriendUserId);
-                                if (targetSession != null)
-                                {
-                                    var noti = new FriendRequestNotification { SenderId = req.MyUserId, SenderNickname = sender?.Nickname ?? "未知" };
-                                    targetSession.Send(new NetworkPacket { Type = PacketType.FriendRequestNotification, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(noti)) });
-                                    Console.WriteLine($"[推送] 已向在线用户 {req.FriendUserId} 推送申请");
+                                    db.FriendRequests.Add(new FriendRequestEntity { SenderId = req.MyUserId, ReceiverId = req.FriendUserId, Status = 0, CreateTime = DateTime.Now });
+                                    db.SaveChanges();
+                                    var targetSession = SessionManager.Instance.GetSessionByUserId(req.FriendUserId);
+                                    if (targetSession != null)
+                                    {
+                                        var sender = db.Users.Find(req.MyUserId);
+                                        var noti = new FriendRequestNotification { SenderId = req.MyUserId, SenderNickname = sender?.Nickname ?? "未知" };
+                                        targetSession.Send(new NetworkPacket { Type = PacketType.FriendRequestNotification, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(noti)) });
+                                    }
                                 }
+                                Send(session, PacketType.AddFriendResponse, new AddFriendResp { IsSuccess = true, Message = "好友申请已发送" });
                             }
-                            Send(session, PacketType.AddFriendResponse, new AddFriendResp { IsSuccess = true, Message = "好友申请已发送，等待对方验证" });
                         }
                     }
-                    catch (Exception ex) { Console.WriteLine($"加好友申请失败: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"加好友异常: {ex.Message}"); }
                     break;
 
-                // ================================================================
-                // 6. 处理好友申请 (同意/拒绝)
-                // ================================================================
                 case PacketType.HandleFriendRequestRequest:
                     try
                     {
                         var req = ProtobufHelper.Deserialize<HandleFriendRequestReq>(packet.Body.ToByteArray());
-                        string myId = session.UserId; // 操作人
-
+                        string myId = session.UserId;
                         using (var db = new MyChatContext())
                         {
                             var friendReq = db.FriendRequests.FirstOrDefault(r => r.SenderId == req.RequesterId && r.ReceiverId == myId && r.Status == 0);
@@ -456,26 +431,13 @@ namespace MyChat.Server.Core
                                 friendReq.Status = req.IsAccept ? 1 : 2;
                                 if (req.IsAccept)
                                 {
-                                    if (!db.Friends.Any(f => f.UserId == req.RequesterId && f.FriendId == myId))
-                                        db.Friends.Add(new FriendEntity { UserId = req.RequesterId, FriendId = myId, CreateTime = DateTime.Now });
-                                    if (!db.Friends.Any(f => f.UserId == myId && f.FriendId == req.RequesterId))
-                                        db.Friends.Add(new FriendEntity { UserId = myId, FriendId = req.RequesterId, CreateTime = DateTime.Now });
-
-                                    // 通知发起人刷新
+                                    if (!db.Friends.Any(f => f.UserId == req.RequesterId && f.FriendId == myId)) db.Friends.Add(new FriendEntity { UserId = req.RequesterId, FriendId = myId, CreateTime = DateTime.Now });
+                                    if (!db.Friends.Any(f => f.UserId == myId && f.FriendId == req.RequesterId)) db.Friends.Add(new FriendEntity { UserId = myId, FriendId = req.RequesterId, CreateTime = DateTime.Now });
                                     var requesterSession = SessionManager.Instance.GetSessionByUserId(req.RequesterId);
                                     if (requesterSession != null)
                                     {
-                                        var myNickname = db.Users.Find(myId)?.Nickname ?? "对方";
-                                        requesterSession.Send(new NetworkPacket
-                                        {
-                                            Type = PacketType.HandleFriendRequestResponse,
-                                            Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(new HandleFriendRequestResp
-                                            {
-                                                IsSuccess = true,
-                                                Message = $"{myNickname} 同意了你的请求",
-                                                FriendId = myId
-                                            }))
-                                        });
+                                        var myName = db.Users.Find(myId)?.Nickname ?? "对方";
+                                        requesterSession.Send(new NetworkPacket { Type = PacketType.HandleFriendRequestResponse, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(new HandleFriendRequestResp { IsSuccess = true, Message = $"{myName} 同意了请求", FriendId = myId })) });
                                     }
                                 }
                                 db.SaveChanges();
@@ -483,63 +445,141 @@ namespace MyChat.Server.Core
                             Send(session, PacketType.HandleFriendRequestResponse, new HandleFriendRequestResp { IsSuccess = true, Message = req.IsAccept ? "已添加" : "已拒绝", FriendId = req.RequesterId });
                         }
                     }
-                    catch (Exception ex) { Console.WriteLine($"处理好友请求失败: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"处理好友请求异常: {ex.Message}"); }
                     break;
 
-                // ================================================================
-                // 7. 获取好友列表 (★★★ 修改点：自动添加 AI 机器人 ★★★)
-                // ================================================================
                 case PacketType.GetFriendListRequest:
                     try
                     {
                         var req = ProtobufHelper.Deserialize<GetFriendListReq>(packet.Body.ToByteArray());
                         var resp = new GetFriendListResp();
+                        using (var db = new MyChatContext())
+                        {
+                            if (!db.Friends.Any(f => f.UserId == req.UserId && f.FriendId == "9999")) { db.Friends.Add(new FriendEntity { UserId = req.UserId, FriendId = "9999", CreateTime = DateTime.Now }); db.SaveChanges(); }
+                            var friendIds = db.Friends.Where(f => f.UserId == req.UserId).Select(f => f.FriendId).ToList();
+                            var users = db.Users.Where(u => friendIds.Contains(u.Id)).ToList();
+                            foreach (var u in users)
+                            {
+                                bool isOnline = (u.Id == "9999") || (SessionManager.Instance.GetSessionByUserId(u.Id) != null);
+                                resp.Friends.Add(new FriendDto { UserId = u.Id, Nickname = u.Nickname, Avatar = u.Avatar, IsOnline = isOnline });
+                            }
+                        }
+                        Send(session, PacketType.GetFriendListResponse, resp);
+                    }
+                    catch (Exception ex) { Console.WriteLine($"获取好友列表异常: {ex.Message}"); }
+                    break;
+
+                // ================================================================
+                // ★★★ 新增：更新用户信息 (头像/昵称) ★★★
+                // ================================================================
+                case PacketType.UpdateUserInfoRequest:
+                    try
+                    {
+                        var req = ProtobufHelper.Deserialize<UpdateUserInfoReq>(packet.Body.ToByteArray());
+                        Console.WriteLine($"[用户更新] 用户 {session.UserId} 请求更新信息");
+
+                        if (req.UserId != session.UserId)
+                        {
+                            Send(session, PacketType.UpdateUserInfoResponse, new UpdateUserInfoResp { IsSuccess = false, Message = "非法操作" });
+                            break;
+                        }
+
+                        string finalNickname = "";
+                        string finalAvatar = "";
+                        bool isUpdated = false;
 
                         using (var db = new MyChatContext())
                         {
-                            // ★★★ 自动检测并添加机器人好友 (ID: 9999) ★★★
-                            if (!db.Friends.Any(f => f.UserId == req.UserId && f.FriendId == "9999"))
+                            var user = db.Users.Find(session.UserId);
+                            if (user != null)
                             {
-                                db.Friends.Add(new FriendEntity
+                                if (!string.IsNullOrEmpty(req.NewNickname) && user.Nickname != req.NewNickname)
                                 {
-                                    UserId = req.UserId,
-                                    FriendId = "9999",
-                                    CreateTime = DateTime.Now
-                                });
-                                // 机器人不需要反向添加用户也能回复，单向即可
-                                db.SaveChanges();
-                                Console.WriteLine($"[系统] 已自动将机器人加为用户 {req.UserId} 的好友");
+                                    user.Nickname = req.NewNickname;
+                                    isUpdated = true;
+                                }
+                                if (!string.IsNullOrEmpty(req.NewAvatar) && user.Avatar != req.NewAvatar)
+                                {
+                                    user.Avatar = req.NewAvatar;
+                                    isUpdated = true;
+                                }
+
+                                if (isUpdated)
+                                {
+                                    db.SaveChanges(); // 1. 先保存到数据库
+
+                                    // ===================================================================
+                                    // ★★★ 新增核心功能：实时广播通知给所有在线好友 ★★★
+                                    // ===================================================================
+
+                                    // A. 查出该用户的所有好友ID
+                                    var friendIds = db.Friends
+                                        .Where(f => f.UserId == session.UserId)
+                                        .Select(f => f.FriendId)
+                                        .ToList();
+
+                                    if (friendIds.Count > 0)
+                                    {
+                                        // B. 准备通知包 (告诉好友：我变了)
+                                        var notice = new FriendInfoUpdateNotice
+                                        {
+                                            FriendId = session.UserId, // 谁变了？我变了
+                                            Nickname = user.Nickname,  // 我的新昵称
+                                            Avatar = user.Avatar       // 我的新头像(Base64)
+                                        };
+
+                                        // C. 序列化通知包
+                                        byte[] noticeBytes = ProtobufHelper.Serialize(notice);
+                                        var noticePacket = new NetworkPacket
+                                        {
+                                            Type = PacketType.FriendInfoUpdateNotice, // ID: 72
+                                            Body = Google.Protobuf.ByteString.CopyFrom(noticeBytes),
+                                            Timestamp = DateTime.UtcNow.Ticks
+                                        };
+
+                                        // D. 查找在线好友并推送
+                                        int sentCount = 0;
+                                        foreach (var fid in friendIds)
+                                        {
+                                            // 从 SessionManager 查找该好友是否在线
+                                            var friendSession = SessionManager.Instance.GetSessionByUserId(fid);
+                                            if (friendSession != null)
+                                            {
+                                                friendSession.Send(noticePacket);
+                                                sentCount++;
+                                            }
+                                        }
+                                        Console.WriteLine($"[系统] 头像更新广播: 已推送给 {sentCount} 位在线好友");
+                                    }
+                                    // ===================================================================
+                                }
+
+                                finalNickname = user.Nickname;
+                                finalAvatar = user.Avatar;
                             }
-
-                            // 1. 查好友关系表
-                            var friendIds = db.Friends.Where(f => f.UserId == req.UserId).Select(f => f.FriendId).ToList();
-
-                            // 2. 查用户详情
-                            var users = db.Users.Where(u => friendIds.Contains(u.Id)).ToList();
-
-                            foreach (var u in users)
+                            else
                             {
-                                // ★★★ 核心修改：判断在线状态 ★★★
-                                // 如果是机器人(9999)，强制返回 True (在线)
-                                // 否则，去 SessionManager 查
-                                bool isOnline = (u.Id == "9999") || (SessionManager.Instance.GetSessionByUserId(u.Id) != null);
-
-                                resp.Friends.Add(new FriendDto
-                                {
-                                    UserId = u.Id,
-                                    Nickname = u.Nickname,
-                                    Avatar = u.Avatar,
-                                    IsOnline = isOnline
-                                });
+                                Send(session, PacketType.UpdateUserInfoResponse, new UpdateUserInfoResp { IsSuccess = false, Message = "用户不存在" });
+                                break;
                             }
                         }
-                        Console.WriteLine($"[好友列表] 返回 {resp.Friends.Count} 个好友");
-                        Send(session, PacketType.GetFriendListResponse, resp);
+
+                        // 最后回应给自己 (告诉自己更新成功了)
+                        Send(session, PacketType.UpdateUserInfoResponse, new UpdateUserInfoResp
+                        {
+                            IsSuccess = true,
+                            Message = isUpdated ? "更新成功" : "无变更",
+                            UpdatedNickname = finalNickname,
+                            UpdatedAvatar = finalAvatar
+                        });
+                        Console.WriteLine($"[用户更新] 结果: {(isUpdated ? "成功" : "无变更")}");
                     }
-                    catch (Exception ex) { Console.WriteLine($"[获取列表] 异常: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"[用户更新] 异常: {ex.Message}"); }
                     break;
 
-                // 其他 (群聊、重置密码等，保持原样)
+                // ================================================================
+                // 5. 群组相关
+                // ================================================================
                 case PacketType.CreateGroupRequest:
                     try
                     {
@@ -553,8 +593,12 @@ namespace MyChat.Server.Core
                             db.SaveChanges();
                         }
                         Send(session, PacketType.CreateGroupResponse, new CreateGroupResp { IsSuccess = true, GroupId = groupId, GroupName = req.GroupName, Message = "建群成功" });
+
+                        var noti = new GroupInvitationNotification { GroupId = groupId, GroupName = req.GroupName, OwnerId = session.UserId };
+                        var notiPacket = new NetworkPacket { Type = PacketType.GroupInvitationNotification, Body = Google.Protobuf.ByteString.CopyFrom(ProtobufHelper.Serialize(noti)) };
+                        foreach (var uid in req.MemberIds) if (uid != session.UserId) SessionManager.Instance.GetSessionByUserId(uid)?.Send(notiPacket);
                     }
-                    catch (Exception ex) { Console.WriteLine($"建群失败: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"建群异常: {ex.Message}"); }
                     break;
 
                 case PacketType.GetGroupListRequest:
@@ -570,7 +614,7 @@ namespace MyChat.Server.Core
                         }
                         Send(session, PacketType.GetGroupListResponse, resp);
                     }
-                    catch (Exception ex) { Console.WriteLine($"群列表失败: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"获取群列表异常: {ex.Message}"); }
                     break;
 
                 case PacketType.GetGroupMembersRequest:
@@ -590,7 +634,7 @@ namespace MyChat.Server.Core
                         }
                         Send(session, PacketType.GetGroupMembersResponse, resp);
                     }
-                    catch (Exception ex) { Console.WriteLine($"群成员失败: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"获取群成员异常: {ex.Message}"); }
                     break;
 
                 case PacketType.ResetPasswordRequest:
@@ -607,7 +651,7 @@ namespace MyChat.Server.Core
                         }
                         Send(session, PacketType.ResetPasswordResponse, resp);
                     }
-                    catch (Exception ex) { Console.WriteLine($"重置密码错误: {ex.Message}"); }
+                    catch (Exception ex) { Console.WriteLine($"重置密码异常: {ex.Message}"); }
                     break;
             }
         }

@@ -1,14 +1,15 @@
 syntax = "proto3";
 
-// 指定生成的 C# 命名空间，这非常重要！
+// 指定生成的 C# 命名空间
 option csharp_namespace = "MyChat.Protocol";
 
 package MyChat.Protocol;
 
-// 消息类型枚举：这就好比信封上写的“这是什么信”
+// 消息类型枚举
 enum PacketType {
     UNKNOWN = 0;
     HEARTBEAT = 99;
+    
     // --- 登录相关 ---
     LOGIN_REQUEST = 1;
     LOGIN_RESPONSE = 2;
@@ -17,7 +18,8 @@ enum PacketType {
 
     // --- 聊天相关 ---
     CHAT_MESSAGE = 10;
-    CHAT_RESPONSE = 11; // 比如服务器告诉客户端：消息已送达
+    CHAT_RESPONSE = 11; 
+    
     // --- 好友相关 ---
     SEARCH_USER_REQUEST = 20;
     SEARCH_USER_RESPONSE = 21;
@@ -27,33 +29,46 @@ enum PacketType {
     
     GET_FRIEND_LIST_REQUEST = 24;
     GET_FRIEND_LIST_RESPONSE = 25;
+    
     // --- 通知类 ---
     FRIEND_STATUS_NOTICE = 30;
+    
+    // --- 群组相关 ---
     CREATE_GROUP_REQUEST = 40;
     CREATE_GROUP_RESPONSE = 41;
     GET_GROUP_LIST_REQUEST = 42;
-GET_GROUP_LIST_RESPONSE = 43;
-GET_GROUP_MEMBERS_REQUEST = 44;
-GET_GROUP_MEMBERS_RESPONSE = 45;
-RESET_PASSWORD_REQUEST = 50;
+    GET_GROUP_LIST_RESPONSE = 43;
+    GET_GROUP_MEMBERS_REQUEST = 44;
+    GET_GROUP_MEMBERS_RESPONSE = 45;
+    GROUP_INVITATION_NOTIFICATION = 46;
+
+    // --- 密码相关 ---
+    RESET_PASSWORD_REQUEST = 50;
     RESET_PASSWORD_RESPONSE = 51;
+
+    // --- 好友请求通知 ---
     FRIEND_REQUEST_NOTIFICATION = 60;
     HANDLE_FRIEND_REQUEST_REQUEST = 61;
     HANDLE_FRIEND_REQUEST_RESPONSE = 62;
 
+    // ★★★ 新增：用户信息更新 ID (70, 71) ★★★
+    UPDATE_USER_INFO_REQUEST = 70;
+    UPDATE_USER_INFO_RESPONSE = 71;
+    // ★★★ 新增：好友信息更新通知 (ID: 72) ★★★
+    FRIEND_INFO_UPDATE_NOTICE = 72;
 }
 
-// 网络包（信封）：所有数据传输都用这个包着
+// 网络包（信封）
 message NetworkPacket {
-    PacketType type = 1;      // 包类型
-    bytes body = 2;           // 包体（具体的 LoginReq 或 ChatMsg 序列化后的二进制数据）
-    int64 timestamp = 3;      // 发送时间戳
-    
+    PacketType type = 1;      
+    bytes body = 2;           
+    int64 timestamp = 3;      
 }
+
 // 重置密码请求
 message ResetPasswordReq {
     string account = 1;
-    string nickname = 2; // 用昵称作为安全验证（模拟验证身份）
+    string nickname = 2; 
     string newPassword = 3;
 }
 

@@ -1,28 +1,37 @@
-﻿using Avalonia.Media.Imaging; // 必须引用
+﻿using System;
+using Avalonia.Media.Imaging;
+using CommunityToolkit.Mvvm.ComponentModel;
+using MyChat.Desktop.Helpers;
+using MyChat.Protocol;
 
 namespace MyChat.Desktop.Models
 {
-    public class ChatMessage
+    public partial class ChatMessage : ObservableObject
     {
         public string Id { get; set; }
+        public string SenderId { get; set; }
+        public string ReceiverId { get; set; }
         public string SenderName { get; set; }
-        public string Content { get; set; }
-        public System.DateTime Time { get; set; }
+
+        // ★★★ 核心修复：把 Content 改为可通知的属性 ★★★
+        [ObservableProperty]
+        private string _content;
+
+        public DateTime Time { get; set; }
         public bool IsMe { get; set; }
+        public MsgType Type { get; set; }
 
-        // 【新增】消息类型
-        public MyChat.Protocol.MsgType Type { get; set; }
-
-        // 【新增】图片对象 (如果是文本消息，这里为 null)
+        // 附件/图片消息专用
         public Bitmap? ImageContent { get; set; }
-        // 【新增】
         public string FileName { get; set; }
-        public string FileSizeStr { get; set; } // 格式化后的大小 (如 "2.5 MB")
+        public string FileSizeStr { get; set; }
 
-        // 我们还可以加一个属性，用来绑定“是否是文件”
-        // (虽然可以用 Type 判断，但这样方便 XAML 绑定)
-        public bool IsFile => Type == MyChat.Protocol.MsgType.File;
-        public bool IsImage => Type == MyChat.Protocol.MsgType.Image;
-        public bool IsText => Type == MyChat.Protocol.MsgType.Text;
+        public bool IsText => Type == MsgType.Text || Type == MsgType.Aistream;
+        public bool IsImage => Type == MsgType.Image;
+        public bool IsFile => Type == MsgType.File;
+
+        // 头像
+        [ObservableProperty]
+        private Bitmap? _senderAvatarBitmap;
     }
 }

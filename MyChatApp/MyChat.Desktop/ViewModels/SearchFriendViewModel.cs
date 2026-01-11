@@ -4,6 +4,7 @@ using MyChat.Client.Core;
 using Avalonia.Threading;
 using System.Threading.Tasks;
 using System;
+using MyChat.Protocol; // ★★★ 必须引用，用于识别 FriendDto ★★★
 
 namespace MyChat.Desktop.ViewModels
 {
@@ -31,20 +32,27 @@ namespace MyChat.Desktop.ViewModels
             ChatClient.Instance.OnAddFriendResult += OnAddResult;
         }
 
-        // 为了防止内存泄漏，如果是长期存在的对象，最好提供 Unsubscribe 方法
-        // 但对于这种一次性的页面 ViewModel，通常不用太担心，这里用命名方法是为了代码整洁
-        private void OnSearchResult(bool success, string userId, string nickname, string account)
+        // 析构时取消订阅
+        ~SearchFriendViewModel()
+        {
+            ChatClient.Instance.OnSearchUserResult -= OnSearchResult;
+            ChatClient.Instance.OnAddFriendResult -= OnAddResult;
+        }
+
+        // ★★★ 修复 1：参数改为 (bool success, FriendDto? user) ★★★
+        private void OnSearchResult(bool success, FriendDto? user)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 IsBusy = false;
-                if (success)
+                if (success && user != null)
                 {
                     StatusMessage = "";
                     HasResult = true;
-                    FoundId = userId;
-                    FoundName = nickname;
-                    FoundAccount = account;
+                    FoundId = user.UserId;
+                    FoundName = user.Nickname;
+                    // FriendDto 里没有 Account 字段，这里我们暂时用 SearchText (用户输入的账号) 或者 ID 代替
+                    FoundAccount = SearchText;
                 }
                 else
                 {
@@ -59,8 +67,6 @@ namespace MyChat.Desktop.ViewModels
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 IsBusy = false;
-                // ★★★ 优化点：直接显示服务器返回的消息（例如 "好友申请已发送..."）
-                // 这样用户就知道只是发了申请，而不是已经加上了
                 StatusMessage = success ? msg : $"操作失败: {msg}";
             });
         }
@@ -86,23 +92,14 @@ namespace MyChat.Desktop.ViewModels
             IsBusy = true;
             StatusMessage = "正在发送请求...";
 
-            string myId = ChatClient.Instance.CurrentUserId;
-
-            if (string.IsNullOrEmpty(myId))
-            {
-                StatusMessage = "错误：未获取到登录信息";
-                IsBusy = false;
-                return;
-            }
-
-            // 发送添加请求
-            ChatClient.Instance.AddFriend(myId, FoundId);
+            // ★★★ 修复 2：AddFriend 现在只需要对方 ID，不需要传 MyId ★★★
+            ChatClient.Instance.AddFriend(FoundId);
         }
 
         [RelayCommand]
         private void Back()
         {
-            // 简单清理一下事件监听，防止多次回调（虽然 new 出来的一般没事，但好习惯）
+            // 清理事件监听
             ChatClient.Instance.OnSearchUserResult -= OnSearchResult;
             ChatClient.Instance.OnAddFriendResult -= OnAddResult;
 

@@ -14,20 +14,40 @@ message LoginResp {
     string message = 2;
     string userId = 3;
     string nickname = 4;
+    string avatar = 5; // ★★★ 新增：登录成功后返回头像 ★★★
 }
 
-// --- 新增：注册协议 ---
+// --- 注册协议 ---
 
 // 注册请求
 message RegisterReq {
     string account = 1;
     string password = 2;
-    string nickname = 3; // 昵称
+    string nickname = 3; 
 }
 
 // 注册响应
 message RegisterResp {
     bool isSuccess = 1;
     string message = 2;
-    string newUserId = 3; // 注册成功后分配的ID
+    string newUserId = 3; 
+}
+
+// ==========================================
+// ★★★ 新增：用户信息更新 (头像/昵称) ★★★
+// ==========================================
+
+// 请求：更新头像或昵称
+message UpdateUserInfoReq {
+    string userId = 1;
+    string newNickname = 2; // 可选，不改传空
+    string newAvatar = 3;   // 可选，Base64字符串
+}
+
+// 响应：更新结果
+message UpdateUserInfoResp {
+    bool isSuccess = 1;
+    string message = 2;
+    string updatedNickname = 3; // 返回最新昵称
+    string updatedAvatar = 4;   // 返回最新头像
 }

@@ -52,3 +52,13 @@ message GetGroupMembersResp {
     string groupId = 1;
     repeated GroupMemberDto members = 2;
 }
+
+
+// ==========================================
+// ★★★ 新增：入群通知包体 (放在这里最合适) ★★★
+// ==========================================
+message GroupInvitationNotification {
+    string groupId = 1;
+    string groupName = 2;
+    string ownerId = 3;
+}

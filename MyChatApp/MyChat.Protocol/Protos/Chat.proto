@@ -6,7 +6,9 @@ package MyChat.Protocol;
 enum MsgType {
     Text = 0;
     Image = 1;
-    File = 2; // 【新增】文件类型
+    File = 2; 
+    // ★★★ 必须加上这一行，否则报错 ★★★
+    Aistream = 3; 
 }
 
 message ChatMsg {
@@ -18,10 +20,14 @@ message ChatMsg {
     bool isGroup = 6;
     MsgType type = 7;
 
-    // 【新增】携带发送者的展示信息
-    string senderName = 8;   // 发送者昵称
-    string senderAvatar = 9; // 发送者头像 (存颜色代码或URL)
-    // 【新增】文件元数据
-    string fileName = 10; // 文件名 (如 "report.pdf")
-    int64 fileSize = 11;  // 文件大小 (字节)
+    string senderName = 8;
+    string senderAvatar = 9; 
+    string fileName = 10;
+    int64 fileSize = 11; 
+}
+// ★★★ 新增：好友信息变更通知 ★★★
+message FriendInfoUpdateNotice {
+    string friendId = 1;
+    string nickname = 2;
+    string avatar = 3; // 新的 Base64 头像
 }

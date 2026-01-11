@@ -2,19 +2,13 @@
 using System;
 using System.IO;
 
-namespace MyChat.Desktop.Helpers
+namespace MyChat.Desktop.Helpers // 命名空间改为 Helpers
 {
     public static class ImageHelper
     {
-        // 1. 文件路径 -> Base64 (发送用)
-        public static string FileToBase64(string filePath)
-        {
-            if (!File.Exists(filePath)) return "";
-            byte[] bytes = File.ReadAllBytes(filePath);
-            return Convert.ToBase64String(bytes);
-        }
-
-        // 2. Base64 -> Bitmap (显示用)
+        /// <summary>
+        /// Base64 字符串转 Avalonia Bitmap (用于显示)
+        /// </summary>
         public static Bitmap? Base64ToBitmap(string base64)
         {
             if (string.IsNullOrEmpty(base64)) return null;
@@ -28,7 +22,24 @@ namespace MyChat.Desktop.Helpers
             }
             catch
             {
-                return null; // 如果解析失败（比如是坏的Base64），返回空
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 本地文件转 Base64 字符串 (用于上传)
+        /// </summary>
+        public static string FileToBase64(string filePath)
+        {
+            if (!File.Exists(filePath)) return "";
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(filePath);
+                return Convert.ToBase64String(bytes);
+            }
+            catch
+            {
+                return "";
             }
         }
     }

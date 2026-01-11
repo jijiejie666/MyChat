@@ -16,61 +16,71 @@ using System.IO;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using Avalonia.Media.Imaging;
+using Avalonia.Data.Converters;
 
 namespace MyChat.Desktop.ViewModels
 {
     public partial class ChatViewModel : ViewModelBase
     {
+        // 静态转换器
+        public static FuncValueConverter<string, Bitmap?> Base64ToBitmapConverter { get; } =
+            new FuncValueConverter<string, Bitmap?>(base64 => ImageHelper.Base64ToBitmap(base64));
+
         // ==================== 属性定义 ====================
 
-        // 好友/群组列表
         public ObservableCollection<ChatContact> Contacts { get; } = new();
-
-        // 当前聊天记录
         public ObservableCollection<ChatMessage> Messages { get; } = new();
 
-        // 选中的好友/群
         [ObservableProperty] private ChatContact? _selectedContact;
-
-        // 输入框内容
         [ObservableProperty] private string _inputText = "";
 
         // 当前登录用户信息
         [ObservableProperty] private string _myNickname;
         [ObservableProperty] private string _myId;
         [ObservableProperty] private string _myAvatarColor;
+        [ObservableProperty] private Bitmap? _myAvatar;
 
-        // 右侧栏相关
         [ObservableProperty] private ObservableCollection<GroupMemberDto> _currentGroupMembers;
         [ObservableProperty] private bool _showGroupInfo;
 
-        // 导航事件
         public event Action RequestSearch;
         public event Action RequestCreateGroup;
         public event Action RequestLogout;
-
-        // 滚动到底部事件
         public event Action OnNewMessage;
+
+        public bool IsAdmin => _myId == "10000" || (_myNickname != null && _myNickname.ToLower().Contains("superadmin"));
+        [ObservableProperty] private string _broadcastText = "";
+
+        public int AdminOnlineCount => Contacts.Count(c => !c.IsGroup && !c.IsRequest && c.LastMessage.Contains("在线"));
+        public int AdminMessageCount => Messages.Count;
+        public string ServerStatusText => "🟢 运行正常";
 
         // ==================== 构造函数 ====================
 
         public ChatViewModel()
         {
-            // 1. 初始化用户信息
             MyNickname = ChatClient.Instance.CurrentNickname ?? "未知用户";
             MyId = ChatClient.Instance.CurrentUserId ?? "Unknown";
             MyAvatarColor = "#5B60F6";
 
-            // 2. 注册所有事件监听
+            LoadMyAvatar();
             RegisterEvents();
 
-            // 3. 加载初始数据
+            ChatClient.Instance.OnUpdateUserInfoResult += OnUpdateUserInfo;
+            ChatClient.Instance.OnFriendInfoUpdate += OnFriendInfoUpdateHandler;
+
             LoadData();
+        }
+
+        ~ChatViewModel()
+        {
+            ChatClient.Instance.OnUpdateUserInfoResult -= OnUpdateUserInfo;
+            ChatClient.Instance.OnFriendInfoUpdate -= OnFriendInfoUpdateHandler;
         }
 
         private void RegisterEvents()
         {
-            // 先取消订阅，防止重复 (虽在构造函数里通常没事，但为了安全)
             ChatClient.Instance.OnGetFriendListResult -= UpdateContactList;
             ChatClient.Instance.OnGetGroupListResult -= UpdateGroupList;
             ChatClient.Instance.OnMessageReceived -= OnNetworkMessageReceived;
@@ -79,8 +89,8 @@ namespace MyChat.Desktop.ViewModels
             ChatClient.Instance.OnCreateGroupResult -= OnCreateGroupResultHandler;
             ChatClient.Instance.OnFriendRequestReceived -= OnFriendRequestReceived;
             ChatClient.Instance.OnHandleFriendRequestResult -= OnHandleFriendRequestResult;
+            ChatClient.Instance.OnGroupInvitationReceived -= OnGroupInvitationReceivedHandler;
 
-            // 重新订阅
             ChatClient.Instance.OnGetFriendListResult += UpdateContactList;
             ChatClient.Instance.OnGetGroupListResult += UpdateGroupList;
             ChatClient.Instance.OnMessageReceived += OnNetworkMessageReceived;
@@ -89,46 +99,295 @@ namespace MyChat.Desktop.ViewModels
             ChatClient.Instance.OnCreateGroupResult += OnCreateGroupResultHandler;
             ChatClient.Instance.OnFriendRequestReceived += OnFriendRequestReceived;
             ChatClient.Instance.OnHandleFriendRequestResult += OnHandleFriendRequestResult;
+            ChatClient.Instance.OnGroupInvitationReceived += OnGroupInvitationReceivedHandler;
         }
 
         private void LoadData()
         {
-            // 拉取好友和群
             ChatClient.Instance.GetFriendList();
             ChatClient.Instance.GetGroupList();
         }
 
-        // ==================== 事件处理逻辑 ====================
+        private void LoadMyAvatar()
+        {
+            string base64 = ChatClient.Instance.CurrentUserAvatar;
+            MyAvatar = ImageHelper.Base64ToBitmap(base64);
+        }
+
+        private void OnUpdateUserInfo(bool success, string msg, string newNick, string newAvatar)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (success)
+                {
+                    if (!string.IsNullOrEmpty(newNick)) MyNickname = newNick;
+                    if (!string.IsNullOrEmpty(newAvatar)) MyAvatar = ImageHelper.Base64ToBitmap(newAvatar);
+                }
+            });
+        }
+
+        private void OnFriendInfoUpdateHandler(string friendId, string newNick, string newAvatar)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var contact = Contacts.FirstOrDefault(c => c.Id == friendId);
+                if (contact != null)
+                {
+                    if (!string.IsNullOrEmpty(newNick)) contact.Name = newNick;
+                    if (!string.IsNullOrEmpty(newAvatar)) contact.AvatarBase64 = newAvatar;
+                    if (SelectedContact?.Id == friendId) OnPropertyChanged(nameof(SelectedContact));
+                }
+            });
+        }
+
+        // ==================== 核心逻辑 ====================
+
+        private void LoadHistoryMessages(ChatContact contact)
+        {
+            using (var db = new ClientDbContext())
+            {
+                var myId = ChatClient.Instance.CurrentUserId;
+                var targetId = contact.Id;
+                List<LocalMessageEntity> history;
+
+                if (contact.IsGroup)
+                {
+                    history = db.Messages.Where(m => m.ReceiverId == targetId)
+                                       .OrderBy(m => m.TimeTicks)
+                                       .ToList();
+                }
+                else
+                {
+                    history = db.Messages.Where(m => (m.SenderId == myId && m.ReceiverId == targetId) ||
+                                                     (m.SenderId == targetId && m.ReceiverId == myId))
+                                       .OrderBy(m => m.TimeTicks)
+                                       .ToList();
+                }
+
+                foreach (var item in history)
+                {
+                    var type = (MsgType)item.Type;
+                    bool isActuallyMe = (item.SenderId == myId);
+
+                    string senderName = "未知";
+                    Bitmap? avatarImg = null;
+
+                    if (isActuallyMe)
+                    {
+                        senderName = "我";
+                        avatarImg = MyAvatar;
+                    }
+                    else
+                    {
+                        if (!contact.IsGroup)
+                        {
+                            senderName = contact.Name;
+                            avatarImg = contact.AvatarBitmap;
+                        }
+                        else
+                        {
+                            senderName = !string.IsNullOrEmpty(item.SenderName) ? item.SenderName : item.SenderId;
+                            var mem = contact.Members.FirstOrDefault(m => m.UserId == item.SenderId);
+                            if (mem != null && !string.IsNullOrEmpty(mem.Avatar))
+                            {
+                                avatarImg = ImageHelper.Base64ToBitmap(mem.Avatar);
+                            }
+                        }
+                    }
+
+                    var uiMsg = new ChatMessage
+                    {
+                        Id = item.Id,
+                        SenderId = item.SenderId,
+                        Content = item.Content,
+                        IsMe = isActuallyMe,
+                        SenderName = senderName,
+                        Time = new DateTime(item.TimeTicks),
+                        Type = type,
+                        ImageContent = (type == MsgType.Image) ? ImageHelper.Base64ToBitmap(item.Content) : null,
+                        FileName = item.FileName,
+                        FileSizeStr = FileHelper.FormatFileSize(item.FileSize),
+                        SenderAvatarBitmap = avatarImg
+                    };
+
+                    contact.MessageHistory.Add(uiMsg);
+                    Messages.Add(uiMsg);
+                }
+            }
+            OnNewMessage?.Invoke();
+        }
+
+        private void OnNetworkMessageReceived(ChatMsg netMsg)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // 系统广播处理
+                if (netMsg.SenderId == "SYSTEM")
+                {
+                    var sysContact = Contacts.FirstOrDefault(c => c.Id == "SYSTEM");
+                    if (sysContact == null)
+                    {
+                        sysContact = new ChatContact
+                        {
+                            Id = "SYSTEM",
+                            Name = "📢 系统广播",
+                            AvatarColor = "#FF5252",
+                            IsOnline = true,
+                            LastMessage = "系统通知",
+                            IsGroup = false,
+                            IsRequest = false
+                        };
+                        Contacts.Insert(0, sysContact);
+                    }
+                }
+
+                string conversationId = netMsg.IsGroup ? netMsg.ReceiverId : netMsg.SenderId;
+                var contact = Contacts.FirstOrDefault(c => c.Id == conversationId);
+
+                if (contact == null) return;
+
+                // 查找头像
+                Bitmap? senderAvatarImg = null;
+                if (netMsg.IsGroup)
+                {
+                    var member = contact.Members.FirstOrDefault(m => m.UserId == netMsg.SenderId);
+                    if (member != null && !string.IsNullOrEmpty(member.Avatar))
+                    {
+                        senderAvatarImg = ImageHelper.Base64ToBitmap(member.Avatar);
+                    }
+                }
+                else
+                {
+                    senderAvatarImg = contact.AvatarBitmap;
+                }
+
+                // ★★★ 核心修复：AI流式消息特殊处理 ★★★
+                if (netMsg.Type == MsgType.Aistream)
+                {
+                    // 尝试找到已经存在的这条消息
+                    var existingMsg = contact.MessageHistory.FirstOrDefault(m => m.Id == netMsg.Id);
+
+                    if (existingMsg != null)
+                    {
+                        // 如果找到了，直接追加内容
+                        // 因为 ChatMessage.Content 已经是 ObservableProperty，界面会自动刷新
+                        existingMsg.Content += netMsg.Content;
+                        contact.LastMessage = "AI 正在输入...";
+                    }
+                    else
+                    {
+                        // 如果是第一个字，创建新消息
+                        var newMsg = new ChatMessage
+                        {
+                            Id = netMsg.Id,
+                            SenderId = netMsg.SenderId,
+                            SenderName = netMsg.SenderName,
+                            Content = netMsg.Content, // 第一个字
+                            IsMe = false,
+                            Time = new DateTime(netMsg.SendTime),
+                            Type = MsgType.Text, // 界面上当作 Text 显示
+                            SenderAvatarBitmap = senderAvatarImg
+                        };
+
+                        contact.MessageHistory.Add(newMsg);
+
+                        // 如果当前正好选中了这个会话，也要加到 Messages 集合里显示出来
+                        if (SelectedContact?.Id == conversationId)
+                        {
+                            Messages.Add(newMsg);
+                            OnNewMessage?.Invoke(); // 滚到底部
+                        }
+                    }
+                    return; // 流式消息处理完毕，直接返回，不存库（直到最后一条完整的才存）
+                }
+
+                // 普通消息处理 (Text, Image, File 等)
+                string displaySenderName = netMsg.IsGroup
+                    ? (string.IsNullOrEmpty(netMsg.SenderName) ? netMsg.SenderId : netMsg.SenderName)
+                    : contact.Name;
+
+                var newMessage = new ChatMessage
+                {
+                    Id = netMsg.Id,
+                    SenderId = netMsg.SenderId,
+                    SenderName = displaySenderName,
+                    Content = netMsg.Content,
+                    IsMe = false,
+                    Time = new DateTime(netMsg.SendTime),
+                    Type = netMsg.Type,
+                    ImageContent = (netMsg.Type == MsgType.Image) ? ImageHelper.Base64ToBitmap(netMsg.Content) : null,
+                    FileName = netMsg.FileName,
+                    FileSizeStr = FileHelper.FormatFileSize(netMsg.FileSize),
+                    SenderAvatarBitmap = senderAvatarImg
+                };
+
+                contact.MessageHistory.Add(newMessage);
+
+                // 存库 (流式消息中间态不存库，只有非流式消息存库)
+                if (netMsg.Type != MsgType.Aistream)
+                {
+                    SaveMessageToLocalDb(new LocalMessageEntity
+                    {
+                        Id = netMsg.Id,
+                        SenderId = netMsg.SenderId,
+                        ReceiverId = netMsg.ReceiverId,
+                        Content = netMsg.Content,
+                        IsMe = false,
+                        TimeTicks = DateTime.Now.Ticks,
+                        Type = (int)netMsg.Type,
+                        SenderName = displaySenderName,
+                        SenderAvatar = netMsg.SenderAvatar,
+                        FileName = netMsg.FileName,
+                        FileSize = netMsg.FileSize
+                    });
+                }
+
+                string preview = (netMsg.Type == MsgType.Image) ? "[图片]" : (netMsg.Type == MsgType.File ? $"[文件] {netMsg.FileName}" : netMsg.Content);
+                contact.LastMessage = netMsg.IsGroup ? $"{displaySenderName}: {preview}" : preview;
+
+                if (SelectedContact?.Id == conversationId)
+                {
+                    Messages.Add(newMessage);
+                    OnNewMessage?.Invoke();
+                    UpdateAdminStats();
+                }
+
+                if (netMsg.Type == MsgType.File)
+                {
+                    FileHelper.SaveBase64ToFile(netMsg.Content, netMsg.FileName);
+                }
+            });
+        }
+
+        // ==================== 其他方法 ====================
 
         private void UpdateContactList(List<FriendDto> friendDtos)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                // 保留好友请求项和群组，只刷新普通好友
                 var requests = Contacts.Where(c => c.IsRequest).ToList();
                 var groups = Contacts.Where(c => c.IsGroup).ToList();
 
                 Contacts.Clear();
 
-                // 1. 先放回好友请求
                 foreach (var req in requests) Contacts.Add(req);
 
-                // 2. 加载新好友
                 foreach (var f in friendDtos)
                 {
                     Contacts.Add(new ChatContact
                     {
                         Id = f.UserId,
                         Name = f.Nickname,
-                        AvatarColor = string.IsNullOrEmpty(f.Avatar) ? "#CCCCCC" : f.Avatar,
-                        LastMessage = f.IsOnline ? "[在线]" : "[离线]",
+                        AvatarBase64 = f.Avatar,
+                        AvatarColor = "#CCCCCC",
+                        LastMessage = f.IsOnline ? "[在线] 刚刚上线" : "[离线]",
                         IsGroup = false,
                         IsRequest = false
                     });
                 }
 
-                // 3. 放回群组
                 foreach (var g in groups) Contacts.Add(g);
+                UpdateAdminStats();
             });
         }
 
@@ -136,7 +395,6 @@ namespace MyChat.Desktop.ViewModels
         {
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                // 移除旧的群组
                 var toRemove = Contacts.Where(c => c.IsGroup).ToList();
                 foreach (var r in toRemove) Contacts.Remove(r);
 
@@ -156,12 +414,9 @@ namespace MyChat.Desktop.ViewModels
 
         private void OnFriendRequestReceived(string id, string nickname)
         {
-            System.Diagnostics.Debug.WriteLine($"[客户端] 收到好友申请: {nickname} ({id})");
             Dispatcher.UIThread.InvokeAsync(() =>
             {
-                // 检查是否已存在
                 if (Contacts.Any(c => c.Id == id && c.IsRequest)) return;
-
                 Contacts.Insert(0, new ChatContact
                 {
                     Id = id,
@@ -176,11 +431,7 @@ namespace MyChat.Desktop.ViewModels
 
         private void OnHandleFriendRequestResult(bool success, string msg, string friendId)
         {
-            if (success)
-            {
-                // 刷新好友列表
-                ChatClient.Instance.GetFriendList();
-            }
+            if (success) ChatClient.Instance.GetFriendList();
         }
 
         private void OnCreateGroupResultHandler(bool success, string groupId, string name, string msg)
@@ -201,6 +452,24 @@ namespace MyChat.Desktop.ViewModels
             }
         }
 
+        private void OnGroupInvitationReceivedHandler(string groupId, string groupName, string ownerId)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (Contacts.Any(c => c.Id == groupId)) return;
+                Contacts.Insert(0, new ChatContact
+                {
+                    Id = groupId,
+                    Name = groupName + " (群)",
+                    IsGroup = true,
+                    AvatarColor = "#fab1a0",
+                    LastMessage = "你已被邀请加入群聊",
+                    IsOnline = true,
+                    IsRequest = false
+                });
+            });
+        }
+
         private void OnFriendStatusChanged(string friendId, bool isOnline)
         {
             Dispatcher.UIThread.InvokeAsync(() =>
@@ -209,6 +478,7 @@ namespace MyChat.Desktop.ViewModels
                 if (contact != null)
                 {
                     contact.LastMessage = isOnline ? "[在线] 刚刚上线" : "[离线]";
+                    UpdateAdminStats();
                 }
             });
         }
@@ -219,7 +489,6 @@ namespace MyChat.Desktop.ViewModels
             {
                 var group = Contacts.FirstOrDefault(c => c.Id == groupId);
                 if (group == null) return;
-
                 group.Members.Clear();
                 int onlineCount = 0;
                 foreach (var m in members)
@@ -228,15 +497,9 @@ namespace MyChat.Desktop.ViewModels
                     if (m.IsOnline) onlineCount++;
                 }
                 group.LastMessage = $"成员: {members.Count} 人 ({onlineCount} 在线)";
-
-                if (SelectedContact?.Id == groupId)
-                {
-                    CurrentGroupMembers = group.Members;
-                }
+                if (SelectedContact?.Id == groupId) CurrentGroupMembers = group.Members;
             });
         }
-
-        // ==================== 消息收发逻辑 ====================
 
         partial void OnSelectedContactChanged(ChatContact? value)
         {
@@ -246,11 +509,9 @@ namespace MyChat.Desktop.ViewModels
                 OnPropertyChanged(nameof(ShowGroupInfo));
                 return;
             }
-
             Messages.Clear();
             if (value == null) return;
 
-            // 1. 优先显示内存缓存
             if (value.MessageHistory.Count > 0)
             {
                 foreach (var msg in value.MessageHistory) Messages.Add(msg);
@@ -258,129 +519,21 @@ namespace MyChat.Desktop.ViewModels
             }
             else
             {
-                // 2. 从数据库加载
                 LoadHistoryMessages(value);
             }
 
-            // 3. 如果是群，加载成员
             if (value.IsGroup)
             {
                 ShowGroupInfo = true;
                 CurrentGroupMembers = value.Members;
-                if (value.Members.Count == 0)
-                {
-                    ChatClient.Instance.GetGroupMembers(value.Id);
-                }
+                if (value.Members.Count == 0) ChatClient.Instance.GetGroupMembers(value.Id);
             }
             else
             {
                 ShowGroupInfo = false;
                 CurrentGroupMembers = null;
             }
-        }
-
-        private void LoadHistoryMessages(ChatContact contact)
-        {
-            using (var db = new ClientDbContext())
-            {
-                var myId = ChatClient.Instance.CurrentUserId;
-                var targetId = contact.Id;
-                List<LocalMessageEntity> history;
-
-                if (contact.IsGroup)
-                {
-                    history = db.Messages.Where(m => m.ReceiverId == targetId).OrderBy(m => m.TimeTicks).ToList();
-                }
-                else
-                {
-                    history = db.Messages.Where(m => (m.SenderId == myId && m.ReceiverId == targetId) || (m.SenderId == targetId && m.ReceiverId == myId))
-                                         .OrderBy(m => m.TimeTicks).ToList();
-                }
-
-                foreach (var item in history)
-                {
-                    var type = (MsgType)item.Type;
-                    string senderName = "未知";
-                    if (item.IsMe) senderName = "我";
-                    else if (!string.IsNullOrEmpty(item.SenderName)) senderName = item.SenderName;
-                    else senderName = (!contact.IsGroup) ? contact.Name : item.SenderId;
-
-                    var uiMsg = new ChatMessage
-                    {
-                        Id = item.Id,
-                        Content = item.Content,
-                        IsMe = item.IsMe,
-                        SenderName = senderName,
-                        Time = new DateTime(item.TimeTicks),
-                        Type = type,
-                        ImageContent = (type == MsgType.Image) ? ImageHelper.Base64ToBitmap(item.Content) : null,
-                        FileName = item.FileName,
-                        FileSizeStr = FileHelper.FormatFileSize(item.FileSize)
-                    };
-
-                    contact.MessageHistory.Add(uiMsg);
-                    Messages.Add(uiMsg);
-                }
-            }
-            OnNewMessage?.Invoke();
-        }
-
-        private void OnNetworkMessageReceived(ChatMsg netMsg)
-        {
-            Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                string conversationId = netMsg.IsGroup ? netMsg.ReceiverId : netMsg.SenderId;
-                var contact = Contacts.FirstOrDefault(c => c.Id == conversationId);
-                if (contact == null) return;
-
-                string displaySenderName = netMsg.IsGroup
-                    ? (string.IsNullOrEmpty(netMsg.SenderName) ? netMsg.SenderId : netMsg.SenderName)
-                    : contact.Name;
-
-                var newMessage = new ChatMessage
-                {
-                    SenderName = displaySenderName,
-                    Content = netMsg.Content,
-                    IsMe = false,
-                    Time = new DateTime(netMsg.SendTime),
-                    Type = netMsg.Type,
-                    ImageContent = (netMsg.Type == MsgType.Image) ? ImageHelper.Base64ToBitmap(netMsg.Content) : null,
-                    FileName = netMsg.FileName,
-                    FileSizeStr = FileHelper.FormatFileSize(netMsg.FileSize)
-                };
-
-                contact.MessageHistory.Add(newMessage);
-
-                // 存库
-                SaveMessageToLocalDb(new LocalMessageEntity
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    SenderId = netMsg.SenderId,
-                    ReceiverId = netMsg.ReceiverId,
-                    Content = netMsg.Content,
-                    IsMe = false,
-                    TimeTicks = DateTime.Now.Ticks,
-                    Type = (int)netMsg.Type,
-                    SenderName = displaySenderName,
-                    SenderAvatar = netMsg.SenderAvatar,
-                    FileName = netMsg.FileName,
-                    FileSize = netMsg.FileSize
-                });
-
-                string preview = (netMsg.Type == MsgType.Image) ? "[图片]" : (netMsg.Type == MsgType.File ? $"[文件] {netMsg.FileName}" : netMsg.Content);
-                contact.LastMessage = netMsg.IsGroup ? $"{displaySenderName}: {preview}" : preview;
-
-                if (SelectedContact?.Id == conversationId)
-                {
-                    Messages.Add(newMessage);
-                    OnNewMessage?.Invoke();
-                }
-
-                if (netMsg.Type == MsgType.File)
-                {
-                    FileHelper.SaveBase64ToFile(netMsg.Content, netMsg.FileName);
-                }
-            });
+            UpdateAdminStats();
         }
 
         private void SendMessageInternal(string content, MsgType type, string fileName = "", long fileSize = 0)
@@ -402,6 +555,7 @@ namespace MyChat.Desktop.ViewModels
             SelectedContact.MessageHistory.Add(newMsg);
             Messages.Add(newMsg);
             OnNewMessage?.Invoke();
+            UpdateAdminStats();
 
             SaveMessageToLocalDb(new LocalMessageEntity
             {
@@ -439,7 +593,56 @@ namespace MyChat.Desktop.ViewModels
             }
         }
 
-        // ==================== 命令绑定 ====================
+        public void UpdateAdminStats()
+        {
+            OnPropertyChanged(nameof(AdminOnlineCount));
+            OnPropertyChanged(nameof(AdminMessageCount));
+            OnPropertyChanged(nameof(ServerStatusText));
+        }
+
+        [RelayCommand]
+        private async Task ChangeAvatar()
+        {
+            try
+            {
+                var lifetime = Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+                var mainWindow = lifetime?.MainWindow;
+                if (mainWindow == null) return;
+
+                var files = await mainWindow.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "选择头像",
+                    AllowMultiple = false,
+                    FileTypeFilter = new[] { FilePickerFileTypes.ImageAll }
+                });
+
+                if (files.Count >= 1)
+                {
+                    var file = files[0];
+                    string filePath = file.Path.LocalPath;
+                    string base64 = ImageHelper.FileToBase64(filePath);
+                    if (!string.IsNullOrEmpty(base64)) ChatClient.Instance.UpdateUserInfo(MyNickname, base64);
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"更换头像出错: {ex.Message}"); }
+        }
+
+        [RelayCommand]
+        private void SendBroadcast()
+        {
+            if (string.IsNullOrWhiteSpace(BroadcastText)) return;
+            ChatClient.Instance.SendChat("SERVER", $"/broadcast {BroadcastText}", MsgType.Text, false);
+            BroadcastText = "";
+        }
+
+        [RelayCommand]
+        private void KickUser(object parameter)
+        {
+            if (parameter is ChatContact user && user.Id != MyId)
+            {
+                ChatClient.Instance.SendChat("SERVER", $"/kick {user.Id}", MsgType.Text, false);
+            }
+        }
 
         [RelayCommand]
         private void Send()
@@ -461,15 +664,11 @@ namespace MyChat.Desktop.ViewModels
                     AllowMultiple = false,
                     FileTypeFilter = new[] { FilePickerFileTypes.ImageAll }
                 });
-
                 if (result != null && result.Count > 0)
                 {
                     var path = result[0].Path.LocalPath;
                     string base64 = ImageHelper.FileToBase64(path);
-                    if (!string.IsNullOrEmpty(base64))
-                    {
-                        SendMessageInternal(base64, MsgType.Image);
-                    }
+                    if (!string.IsNullOrEmpty(base64)) SendMessageInternal(base64, MsgType.Image);
                 }
             }
         }
@@ -481,15 +680,12 @@ namespace MyChat.Desktop.ViewModels
             {
                 var storage = desktop.MainWindow.StorageProvider;
                 var result = await storage.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "选择文件", AllowMultiple = false });
-
                 if (result != null && result.Count > 0)
                 {
                     var file = result[0];
                     string path = file.Path.LocalPath;
                     var fileInfo = new FileInfo(path);
-
-                    if (fileInfo.Length > 10 * 1024 * 1024) return; // 限制10MB
-
+                    if (fileInfo.Length > 10 * 1024 * 1024) return;
                     string base64 = FileHelper.FileToBase64(path);
                     SendMessageInternal(base64, MsgType.File, file.Name, fileInfo.Length);
                 }
@@ -500,7 +696,6 @@ namespace MyChat.Desktop.ViewModels
         private async Task OpenFile(ChatMessage msg)
         {
             if (msg == null || !msg.IsFile || string.IsNullOrEmpty(msg.Content)) return;
-
             try
             {
                 if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -510,13 +705,11 @@ namespace MyChat.Desktop.ViewModels
                         Title = "另存为",
                         SuggestedFileName = msg.FileName
                     });
-
                     if (file != null)
                     {
                         var filePath = file.Path.LocalPath;
                         byte[] bytes = Convert.FromBase64String(msg.Content);
                         await File.WriteAllBytesAsync(filePath, bytes);
-
                         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                         {
                             Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true });
@@ -524,10 +717,7 @@ namespace MyChat.Desktop.ViewModels
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"打开文件失败: {ex.Message}");
-            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"打开文件失败: {ex.Message}"); }
         }
 
         [RelayCommand]
@@ -567,5 +757,6 @@ namespace MyChat.Desktop.ViewModels
                 SelectedContact = null;
             }
         }
+
     }
 }

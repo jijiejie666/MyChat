@@ -1,102 +1,129 @@
 ﻿using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
-using System.Collections.Generic; // 引用 List
+using System.Collections.Generic;
+using MyChat.Protocol;
+using MyChat.Client.Core;
+using Avalonia.Threading;
 
 namespace MyChat.Desktop.ViewModels
 {
     public partial class MainWindowViewModel : ViewModelBase
     {
-        // 当前显示的页面 (LoginVM 或 RegisterVM 或 ChatVM)
         [ObservableProperty]
         private ViewModelBase _currentContent;
 
+        // 保持单例，避免状态丢失
+        private readonly LoginViewModel _loginVm;
+        private readonly RegisterViewModel _registerVm;
+
         public MainWindowViewModel()
         {
-            // 启动时显示登录页
-            ShowLogin();
+            // 1. 初始化所有 ViewModel
+            _loginVm = new LoginViewModel();
+            _registerVm = new RegisterViewModel();
+
+            // 2. 绑定 Login 页面事件
+            _loginVm.RequestRegister += ShowRegister;
+            _loginVm.LoginSuccess += OnLoginSuccess;
+
+            // ★★★ 新增：绑定忘记密码事件 ★★★
+            _loginVm.RequestForgetPassword += ShowForgetPassword;
+
+            // 3. 绑定 Register 页面事件
+            _registerVm.RequestClose += ShowLogin;
+
+            // 4. 全局监听网络事件 (最关键的部分)
+            ChatClient.Instance.OnLoginResult += OnLoginResultHandler;
+            ChatClient.Instance.OnRegisterResult += OnRegisterResultHandler;
+
+            // 5. 默认显示登录
+            _currentContent = _loginVm;
         }
 
-        // --- 显示登录页 (核心导航逻辑) ---
+        // --- 网络回调处理 ---
+
+        private void OnLoginResultHandler(bool success, string msg)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // 交给 LoginVM 处理 UI 变化 (变亮按钮、显示错误)
+                _loginVm.HandleLoginResult(success, msg);
+            });
+        }
+
+        private void OnRegisterResultHandler(bool success, string msg)
+        {
+            Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // 收到结果无论成功失败，先解锁注册页
+                _registerVm.IsBusy = false;
+
+                if (success)
+                {
+                    // 注册成功 -> 自动切回登录页
+                    ShowLogin();
+
+                    // 自动填入账号
+                    _loginVm.Account = _registerVm.Account;
+                    _loginVm.Password = ""; // 密码留空
+                    _loginVm.StatusMessage = "注册成功，请登录";
+                }
+                else
+                {
+                    // 注册失败 -> 停在注册页显示错误
+                    _registerVm.StatusMessage = msg;
+                }
+            });
+        }
+
+        // --- 导航逻辑 ---
+
         public void ShowLogin()
         {
-            var loginVm = new LoginViewModel();
-
-            // 1. 处理注册请求 -> 跳转到注册页
-            loginVm.RequestRegister += ShowRegister;
-
-            // 2. 处理忘记密码请求 -> 跳转到忘记密码页
-            loginVm.RequestForgetPassword += () =>
-            {
-                var forgetVm = new ForgetPasswordViewModel();
-                // 点击返回时，重新显示登录页
-                forgetVm.GoBack += () => ShowLogin();
-                CurrentContent = forgetVm;
-            };
-
-            // 3. 处理登录成功 -> 跳转到聊天页
-            loginVm.LoginSuccess += () =>
-            {
-                // 创建聊天 ViewModel
-                var chatVm = new ChatViewModel();
-
-                // --- 配置聊天页面的子导航事件 ---
-
-                // A. 处理注销 -> 回到登录页
-                chatVm.RequestLogout += () =>
-                {
-                    ShowLogin();
-                };
-
-                // B. 处理搜索好友 -> 跳转搜索页
-                chatVm.RequestSearch += () =>
-                {
-                    var searchVm = new SearchFriendViewModel();
-
-                    // 当搜索页返回时，切回 chatVm
-                    searchVm.GoBack += () =>
-                    {
-                        CurrentContent = chatVm;
-                        // 刷新好友列表 (确保 ChatViewModel 有 RefreshCommand)
-                        chatVm.RefreshCommand.Execute(null);
-                    };
-
-                    CurrentContent = searchVm;
-                };
-
-                // C. 处理建群 -> 跳转建群页
-                chatVm.RequestCreateGroup += () =>
-                {
-                    // 筛选出纯好友（非群组）传给建群页面
-                    var friends = chatVm.Contacts
-                        .Where(c => !c.IsGroup)
-                        .Select(c => new MyChat.Protocol.FriendDto { UserId = c.Id, Nickname = c.Name })
-                        .ToList();
-
-                    var createVm = new CreateGroupViewModel(friends);
-
-                    // 建群完成或取消后，返回聊天页
-                    createVm.GoBack += () => CurrentContent = chatVm;
-
-                    CurrentContent = createVm;
-                };
-
-                // 切换到聊天主页
-                CurrentContent = chatVm;
-            };
-
-            // 初始显示登录页
-            CurrentContent = loginVm;
+            // 每次切回登录页，强制重置状态
+            _loginVm.ResetState();
+            CurrentContent = _loginVm;
         }
 
-        // --- 显示注册页 ---
         public void ShowRegister()
         {
-            var regVm = new RegisterViewModel();
+            _registerVm.Reset(); // 每次进入注册页都清空
+            CurrentContent = _registerVm;
+        }
 
-            // 注册成功或点击返回 -> 回登录页
-            regVm.RequestClose += ShowLogin;
+        // ★★★ 新增：显示忘记密码页面 ★★★
+        public void ShowForgetPassword()
+        {
+            var forgetVm = new ForgetPasswordViewModel();
+            // 绑定返回事件
+            forgetVm.RequestReturnToLogin += ShowLogin;
+            CurrentContent = forgetVm;
+        }
 
-            CurrentContent = regVm;
+        private void OnLoginSuccess()
+        {
+            // 创建聊天页面 (ChatVM 需要每次重新创建以加载最新数据)
+            var chatVm = new ChatViewModel();
+
+            // 绑定聊天页面的子事件
+            chatVm.RequestLogout += ShowLogin;
+
+            chatVm.RequestSearch += () =>
+            {
+                var searchVm = new SearchFriendViewModel();
+                searchVm.GoBack += () => { CurrentContent = chatVm; chatVm.RefreshCommand.Execute(null); };
+                CurrentContent = searchVm;
+            };
+
+            chatVm.RequestCreateGroup += () =>
+            {
+                var friends = chatVm.Contacts.Where(c => !c.IsGroup).Select(c => new FriendDto { UserId = c.Id, Nickname = c.Name }).ToList();
+                var createVm = new CreateGroupViewModel(friends);
+                createVm.GoBack += () => CurrentContent = chatVm;
+                CurrentContent = createVm;
+            };
+
+            CurrentContent = chatVm;
         }
     }
 }
